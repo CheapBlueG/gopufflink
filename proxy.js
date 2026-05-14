@@ -350,11 +350,11 @@ app.get('/t/:shortId', (req, res) => {
     `);
   }
   // Serve the tracker — it will call /api/resolve on load
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, 'gopuff-tracker.html'));
 });
 
 // ── SERVE TRACKER UI ──────────────────────────────────────────────────────────
-app.use(express.static('public')); // put gopuff-tracker.html in ./public/index.html
+app.use(express.static(__dirname)); // put gopuff-tracker.html in ./public/index.html
 
 // ── START ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, async () => {

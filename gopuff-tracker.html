@@ -220,7 +220,8 @@
 
 <script>
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const API = 'http://localhost:3000'; // change to your deployed proxy URL
+// Auto-detect: same domain in production, localhost in dev
+const API = window.location.hostname === 'localhost' ? 'http://localhost:3000' : '';
 
 const PHASE_MAP = {'Received':0,'Packing':1,'Packed':1,'OutForDelivery':2,'InTransit':2,'Delivered':3};
 const STATUS_META = [

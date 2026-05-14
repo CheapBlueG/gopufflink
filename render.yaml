@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: gopuff-tracker
+    runtime: node
+    buildCommand: npm install
+    startCommand: node index.js
+    disk:
+      name: tracking-store
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TELEGRAM_TOKEN
+        sync: false   # set manually in Render dashboard
+      - key: BASE_URL
+        sync: false   # e.g. https://groceriesarecool.com
+      - key: GOPUFF_BEARER
+        sync: false   # refresh every 7 days from DevTools
+      - key: PROXY_USER
+        sync: false
+      - key: PROXY_PASS
+        sync: false
+      - key: PROXY_HOST
+        sync: false

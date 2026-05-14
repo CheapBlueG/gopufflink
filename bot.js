@@ -14,9 +14,9 @@ const path        = require('path');
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 const TOKEN    = process.env.TELEGRAM_TOKEN || '8813216545:AAGPM3kvZLYDHPXvJiNIS30Ah3CmMaDhYZA';
 const BASE_URL = process.env.BASE_URL       || 'https://groceriesarecool.com';
-// On Render: stored on persistent disk at /data (configured in render.yaml)
+// On Render: stored on persistent disk at /data
 // Locally: stored next to bot.js
-const STORE_DIR  = process.env.NODE_ENV === 'production' ? '/data' : __dirname;
+const STORE_DIR  = process.env.RENDER ? '/data' : __dirname;
 const STORE_FILE = path.join(STORE_DIR, 'tracking-store.json');
 
 // ── PERSISTENT STORE ──────────────────────────────────────────────────────────
@@ -103,7 +103,7 @@ bot.onText(/\/links/, (msg) => {
     return;
   }
   const lines = [...store.entries()].slice(-10).map(([id, entry]) =>
-    `• \`${BASE_URL}/t/${id}\`\n  _${new Date(entry.createdAt).toLocaleString()}_`
+    `• \`${BASE_URL}/${id}\`\n  _${new Date(entry.createdAt).toLocaleString()}_`
   );
   bot.sendMessage(msg.chat.id,
     `*Active Tracking Links (last 10):*\n\n${lines.join('\n\n')}`,
@@ -161,7 +161,7 @@ bot.on('message', async (msg) => {
   });
   saveStore();
 
-  const trackUrl = `${BASE_URL}/t/${shortId}`;
+  const trackUrl = `${BASE_URL}/${shortId}`;
 
   bot.sendMessage(chatId,
     `✅ *Live tracking link created!*\n\n` +

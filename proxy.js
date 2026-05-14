@@ -166,6 +166,12 @@ const { store } = require('./bot');
 
 // ── ROUTES ────────────────────────────────────────────────────────────────────
 
+// Bearer token — lets the browser call GoPuff directly (bypasses Cloudflare
+// since the request comes from the user's own residential IP)
+app.get('/api/token', (req, res) => {
+  res.json({ bearer: BEARER });
+});
+
 // Resolve short link → gopuff URL
 app.get('/api/resolve/:shortId', (req, res) => {
   const entry = store.get(req.params.shortId);

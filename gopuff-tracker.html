@@ -522,7 +522,36 @@ async function renderOrder(order, isDemo) {
   document.getElementById('orderItems').innerHTML=renderItems(order.products,order.packedMap);
 }
 
-// ─── REAL-TIME STREAM (replaces polling) ──────────────────────────────────────
+// ─── BROWSER-DIRECT GOPUFF CALL ───────────────────────────────────────────────
+// Calls GoPuff's API directly from the user's browser (residential IP).
+// Bypasses Cloudflare since the request looks like a real browser visit.
+// Falls back to server-side proxy if CORS blocks it.
+const HASH_ORDER_CLIENT = '2255154c1b1c39ec15f48cbbe9034ac51df4060a71be751e75eaabe9c287e66fd8';
+
+async function fetchOrderDirect(orderId, shareCode) {
+  // Get bearer token from our server
+  const tokenRes = await fetch(`${API}/api/token`);
+  const { bearer } = await tokenRes.json();
+
+  const variables  = encodeURIComponent(JSON.stringify({ orderId, shareCode }));
+  const extensions = encodeURIComponent(JSON.stringify({
+    persistedQuery: { sha256Hash: HASH_ORDER_CLIENT, version: 1 }
+  }));
+  const gopuffUrl = `https://www.gopuff.com/graphql?operationName=GetSharedOrderStatus&variables=${variables}&extensions=${extensions}`;
+
+  const r = await fetch(gopuffUrl, {
+    headers: {
+      'Authorization':            `Bearer ${bearer}`,
+      'Accept':                   'application/graphql+json, application/json',
+      'x-gopuff-client-platform': 'web',
+      'x-gopuff-version':         '12005030',
+      'x-gp-point-of-sale':       'US',
+    }
+  });
+
+  if (!r.ok) throw new Error(`GoPuff ${r.status}`);
+  return r.json();
+}
 let eventSource = null;
 
 function startStream(orderId, shareCode) {
@@ -644,12 +673,22 @@ async function handleTrack() {
   document.getElementById('trackerUI').classList.add('hidden');
   document.getElementById('loadingState').classList.remove('hidden');
 
-  try{
-    const r=await fetch(`${API}/api/track?orderId=${encodeURIComponent(orderId)}&shareCode=${encodeURIComponent(shareCode)}`);
-    if(!r.ok)throw new Error(`${r.status}`);
-    const order=mapOrder(await r.json());
-    await renderOrder(order,false);
-    startStream(orderId, shareCode); // real-time SSE — falls back to poll if stream fails
+  try {
+    let raw;
+    try {
+      // Try browser-direct first — uses user's residential IP, bypasses Cloudflare
+      console.log('[track] Trying browser-direct...');
+      raw = await fetchOrderDirect(orderId, shareCode);
+      console.log('[track] Browser-direct succeeded ✅');
+    } catch(browserErr) {
+      console.warn('[track] Browser-direct failed:', browserErr.message, '— trying server proxy...');
+      const r = await fetch(`${API}/api/track?orderId=${encodeURIComponent(orderId)}&shareCode=${encodeURIComponent(shareCode)}`);
+      if (!r.ok) throw new Error(`${r.status}`);
+      raw = await r.json();
+    }
+    const order = mapOrder(raw);
+    await renderOrder(order, false);
+    startStream(orderId, shareCode);
   }catch(e){
     document.getElementById('loadingState').classList.add('hidden');
     document.getElementById('emptyState').classList.remove('hidden');

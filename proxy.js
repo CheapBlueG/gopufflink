@@ -27,13 +27,19 @@ const SCRAPER_KEY   = process.env.SCRAPER_API_KEY || '';
 function makeAgent() {
   if (SCRAPER_KEY) {
     console.log('[proxy] Using ScraperAPI residential proxy');
-    return new HttpsProxyAgent(`http://scraperapi:${SCRAPER_KEY}@proxy-server.scraperapi.com:8001`);
+    return new HttpsProxyAgent(
+      `http://scraperapi:${SCRAPER_KEY}@proxy-server.scraperapi.com:8001`,
+      { rejectUnauthorized: false }
+    );
   }
   if (PROXY_HOST) {
     console.log('[proxy] Using custom residential proxy');
-    return new HttpsProxyAgent(`http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}`);
+    return new HttpsProxyAgent(
+      `http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}`,
+      { rejectUnauthorized: false }
+    );
   }
-  console.warn('[proxy] ⚠️  No proxy configured — direct requests will be blocked by Cloudflare');
+  console.warn('[proxy] ⚠️  No proxy configured');
   return null;
 }
 
@@ -116,7 +122,7 @@ async function gqlGet(operationName, variables, hash) {
   // ── Attempt 1: ScraperAPI (handles Cloudflare bypass) ────────────────────
   if (SCRAPER_KEY) {
     try {
-      const scraperUrl = `https://api.scraperapi.com?api_key=${SCRAPER_KEY}&url=${encodeURIComponent(gopuffUrl)}&keep_headers=true&render=false`;
+      const scraperUrl = `https://api.scraperapi.com?api_key=${SCRAPER_KEY}&url=${encodeURIComponent(gopuffUrl)}&keep_headers=true&render=false&premium=true`;
       console.log(`[gql] ${operationName} → ScraperAPI`);
       const r = await fetch(scraperUrl, { headers: HEADERS() });
       console.log(`[gql] ${operationName} ← ${r.status} (ScraperAPI)`);

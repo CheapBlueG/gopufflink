@@ -10,6 +10,53 @@ const path    = require('path');
 const fetch   = require('node-fetch');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
+// ── PLAYWRIGHT STEALTH — gets real cf_clearance cookies from GoPuff ──────────
+const { chromium } = require('playwright-extra');
+const stealth      = require('puppeteer-extra-plugin-stealth');
+chromium.use(stealth());
+
+let _browser     = null;
+let _cfCookies   = '';
+let _cookieExp   = 0;
+
+async function getBrowser() {
+  if (!_browser) {
+    _browser = await chromium.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--single-process', '--disable-dev-shm-usage'],
+    });
+    console.log('[browser] Chromium launched');
+  }
+  return _browser;
+}
+
+async function refreshCFCookies() {
+  console.log('[browser] Fetching fresh Cloudflare cookies...');
+  const browser = await getBrowser();
+  const ctx  = await browser.newContext({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36' });
+  const page = await ctx.newPage();
+  try {
+    await page.goto('https://www.gopuff.com/go/order-tracker', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(2000); // let Cloudflare challenge complete
+    const cookies = await ctx.cookies('https://www.gopuff.com');
+    _cfCookies  = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+    _cookieExp  = Date.now() + 25 * 60 * 1000; // refresh every 25 min
+    const hasCF = cookies.some(c => c.name === 'cf_clearance');
+    console.log(`[browser] Got ${cookies.length} cookies, cf_clearance: ${hasCF ? '✅' : '❌'}`);
+  } finally {
+    await ctx.close();
+  }
+}
+
+async function getCFCookies() {
+  if (Date.now() < _cookieExp && _cfCookies) return _cfCookies;
+  await refreshCFCookies();
+  return _cfCookies;
+}
+
+// Warm up cookies on startup
+refreshCFCookies().catch(e => console.warn('[browser] Startup warmup failed:', e.message));
+
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
@@ -56,18 +103,27 @@ const HASH_ESTIMATE = 'dcfca9ce9b6183627fc3cd0d6936716fea8165695ae8e5b375abb0506
 // ── BEARER TOKEN ──────────────────────────────────────────────────────────────
 let BEARER = process.env.GOPUFF_BEARER || '';
 
-const HEADERS = () => ({
-  'Accept':                   'application/graphql+json, application/json',
-  'Accept-Language':          'en-US,en;q=0.9',
-  'Accept-Encoding':          'gzip, deflate, br',
-  'Authorization':            `Bearer ${BEARER}`,
-  'User-Agent':               'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
-  'x-gopuff-client-platform': 'ios',
-  'x-gopuff-version':         '12005030',
-  'x-gp-point-of-sale':       'US',
-  'Origin':                   'https://www.gopuff.com',
-  'Referer':                  'https://www.gopuff.com/',
-});
+// ── BASE HEADERS ─────────────────────────────────────────────────────────────
+async function HEADERS() {
+  const cookies = await getCFCookies().catch(() => '');
+  return {
+    'Accept':                   'application/graphql+json, application/json',
+    'Accept-Language':          'en-US,en;q=0.9',
+    'Accept-Encoding':          'gzip, deflate, br',
+    'Authorization':            `Bearer ${BEARER}`,
+    'Cookie':                   cookies,
+    'User-Agent':               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+    'x-gopuff-client-platform': 'web',
+    'x-gopuff-client-version':  '12.5.30-193096',
+    'x-gopuff-version':         '12005030',
+    'x-gp-point-of-sale':       'US',
+    'Origin':                   'https://www.gopuff.com',
+    'Referer':                  'https://www.gopuff.com/',
+    'sec-fetch-dest':           'empty',
+    'sec-fetch-mode':           'cors',
+    'sec-fetch-site':           'same-origin',
+  };
+}
 
 // ── TOKEN REFRESH ─────────────────────────────────────────────────────────────
 async function refreshGuestToken() {
@@ -117,45 +173,32 @@ function scheduleTokenRefresh() {
 async function gqlGet(operationName, variables, hash) {
   const v   = encodeURIComponent(JSON.stringify(variables));
   const ext = encodeURIComponent(JSON.stringify({ persistedQuery: { sha256Hash: hash, version: 1 } }));
-  const gopuffUrl = `${GQL}?operationName=${operationName}&variables=${v}&extensions=${ext}`;
+  const url = `${GQL}?operationName=${operationName}&variables=${v}&extensions=${ext}`;
+  const hdrs = await HEADERS();
 
-  // ── Attempt 1: ZenRows (handles Cloudflare bypass on free tier) ─────────
-  const ZENROWS_KEY = process.env.ZENROWS_API_KEY || '';
-  if (ZENROWS_KEY) {
-    try {
-      const zenUrl = `https://api.zenrows.com/v1/?apikey=${ZENROWS_KEY}&url=${encodeURIComponent(gopuffUrl)}&js_render=true&antibot=true&premium_proxy=true`;
-      console.log(`[gql] ${operationName} → ZenRows`);
-      const r = await fetch(zenUrl, { headers: HEADERS() });
-      console.log(`[gql] ${operationName} ← ${r.status} (ZenRows)`);
-      if (r.ok) return r.json();
-      const body = await r.text().catch(() => '');
-      throw new Error(`ZenRows ${r.status}: ${body.slice(0, 200)}`);
-    } catch (err) {
-      console.error(`[gql] ZenRows failed:`, err.message);
-    }
+  console.log(`[gql] ${operationName} → direct (stealth cookies)`);
+  const r = await fetch(url, { headers: hdrs });
+  console.log(`[gql] ${operationName} ← ${r.status}`);
+
+  if (r.status === 401) {
+    await refreshGuestToken();
+    const r2 = await fetch(url, { headers: await HEADERS() });
+    if (!r2.ok) throw new Error(`GoPuff ${r2.status}`);
+    return r2.json();
   }
-
-  // ── Attempt 2: Custom residential proxy ──────────────────────────────────
-  if (agent) {
-    try {
-      console.log(`[gql] ${operationName} → proxy`);
-      const r = await fetch(gopuffUrl, { agent, headers: HEADERS() });
-      console.log(`[gql] ${operationName} ← ${r.status} (proxy)`);
-      if (r.status === 401) { await refreshGuestToken(); }
-      if (r.ok) return r.json();
-      const body = await r.text().catch(() => '');
-      throw new Error(`Proxy ${r.status}: ${body.slice(0, 200)}`);
-    } catch (err) {
-      console.error(`[gql] Proxy failed:`, err.message);
-    }
-  }
-
-  // ── Attempt 3: Direct (will 403 on Cloudflare-protected routes) ──────────
-  console.log(`[gql] ${operationName} → direct`);
-  const r = await fetch(gopuffUrl, { headers: HEADERS() });
-  console.log(`[gql] ${operationName} ← ${r.status} (direct)`);
   if (!r.ok) {
     const body = await r.text().catch(() => '');
+    // If still 403 after stealth cookies, force refresh and retry once
+    if (r.status === 403) {
+      console.log('[gql] 403 — refreshing CF cookies and retrying...');
+      _cookieExp = 0; // force refresh
+      const hdrs2 = await HEADERS();
+      const r3 = await fetch(url, { headers: hdrs2 });
+      console.log(`[gql] ${operationName} retry ← ${r3.status}`);
+      if (r3.ok) return r3.json();
+      const b3 = await r3.text().catch(() => '');
+      throw new Error(`GoPuff ${r3.status}: ${b3.slice(0, 200)}`);
+    }
     throw new Error(`GoPuff ${r.status}: ${body.slice(0, 200)}`);
   }
   return r.json();

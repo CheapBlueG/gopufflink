@@ -283,23 +283,73 @@ function parseProductResponse(raw) {
   });
 }
 
-// Fetch real ETA range from DeliveryEstimate endpoint
+// ─── GOPUFF GRAPHQL — ALL CALLS MADE DIRECTLY FROM BROWSER ───────────────────
+// No server proxy needed — browser uses user's residential IP, bypasses Cloudflare
+const GQL_URL      = 'https://www.gopuff.com/graphql';
+const HASH_ORDER   = '2255154c1b1c39ec15f48cbbe9034ac51df4060a71be751e75eaabe9c287e66fd8';
+const HASH_PRODUCTS= '05f6be4b25f1fc8c6e8bcf89f51f00bcc3e4dade63875d33cd3f6bc5ca0e9c87';
+const HASH_ESTIMATE= 'dcfca9ce9b6183627fc3cd0d6936716fea8165695ae8e5b375abb050609a7b91';
+const HASH_STREAM  = '8750177ac802f7020af237cc238940ecb8c54d8ee03e4e3fb8e6e7e28f00fafa';
+
+// Bearer token fetched once from server, cached for session
+let _bearer = null;
+async function getBearer() {
+  if (_bearer) return _bearer;
+  const r = await fetch(`${API}/api/token`);
+  const d = await r.json();
+  _bearer = d.bearer;
+  return _bearer;
+}
+
+async function gopuffFetch(operationName, variables, hash) {
+  const bearer = await getBearer();
+  const v   = encodeURIComponent(JSON.stringify(variables));
+  const ext = encodeURIComponent(JSON.stringify({ persistedQuery: { sha256Hash: hash, version: 1 } }));
+  const url = `${GQL_URL}?operationName=${operationName}&variables=${v}&extensions=${ext}`;
+  const r = await fetch(url, {
+    headers: {
+      'Authorization':            `Bearer ${bearer}`,
+      'Accept':                   'application/graphql+json, application/json',
+      'x-gopuff-client-platform': 'web',
+      'x-gopuff-version':         '12005030',
+      'x-gp-point-of-sale':       'US',
+    }
+  });
+  if (!r.ok) throw new Error(`GoPuff ${r.status}`);
+  return r.json();
+}
+
+// Fetch order status directly from browser
+async function fetchOrderBrowser(orderId, shareCode) {
+  return gopuffFetch('GetSharedOrderStatus', { orderId, shareCode }, HASH_ORDER);
+}
+
+// Fetch real ETA range directly from browser
 async function fetchEstimate(zoneId, lat, lng) {
   try {
-    const r = await fetch(`${API}/api/estimate?zoneId=${zoneId}&lat=${lat}&lng=${lng}`);
-    if (!r.ok) return null;
-    const d = await r.json();
-    if (d.from != null && d.to != null) return `${d.from}–${d.to} min`;
+    const d = await gopuffFetch('DeliveryEstimate', {
+      deliveryZoneId: Number(zoneId),
+      fastestAvailable: true,
+      isDeferred: false,
+      latlng: { lat: Number(lat), lng: Number(lng) },
+      products: [],
+    }, HASH_ESTIMATE);
+    const est = d?.data?.view?.deliveryEstimate || {};
+    if (est.from != null && est.to != null) return `${est.from}–${est.to} min`;
   } catch(e) {}
   return null;
 }
 
+// Fetch product names + images directly from browser
 async function fetchProducts(ids) {
   const missing = ids.filter(id => !productCache[id]);
   if (!missing.length) return;
   try {
-    const r = await fetch(`${API}/api/products?ids=${missing.join(',')}`);
-    if (r.ok) parseProductResponse(await r.json());
+    const data = await gopuffFetch('Products', {
+      platform: 'WEB',
+      productIds: [...new Set(missing)],
+    }, HASH_PRODUCTS);
+    parseProductResponse(data);
   } catch(e) { /* silent — demo catalog covers known IDs */ }
 }
 
@@ -630,20 +680,19 @@ function startStream(orderId, shareCode) {
   };
 }
 
-// ─── POLLING FALLBACK ─────────────────────────────────────────────────────────
+// ─── POLLING FALLBACK (if SSE stream fails) ───────────────────────────────────
 function startPolling(orderId, shareCode) {
   clearInterval(pollInterval);
-  pollInterval=setInterval(async()=>{
-    try{
-      const r=await fetch(`${API}/api/track?orderId=${encodeURIComponent(orderId)}&shareCode=${encodeURIComponent(shareCode)}`);
-      if(!r.ok)return;
-      const order=mapOrder(await r.json());
-      moveDriver(order.driverLat,order.driverLng);
-      document.getElementById('etaTime').textContent=order.eta;
-      document.getElementById('orderStatus').textContent=STATUS_META[order.statusIndex].title;
-      document.getElementById('nextUp').textContent=order.preceding===0?"You're next! 🎉":`${order.preceding} stop(s) before you`;
-    }catch(e){}
-  },5000);
+  pollInterval = setInterval(async () => {
+    try {
+      const raw   = await fetchOrderBrowser(orderId, shareCode);
+      const order = mapOrder(raw);
+      moveDriver(order.driverLat, order.driverLng);
+      document.getElementById('etaTime').textContent    = order.eta;
+      document.getElementById('orderStatus').textContent = STATUS_META[order.statusIndex].title;
+      document.getElementById('nextUp').textContent      = order.preceding === 0 ? "You're next! 🎉" : `${order.preceding} stop(s) before you`;
+    } catch(e) {}
+  }, 5000);
 }
 
 // ─── DEMO ─────────────────────────────────────────────────────────────────────
@@ -674,18 +723,7 @@ async function handleTrack() {
   document.getElementById('loadingState').classList.remove('hidden');
 
   try {
-    let raw;
-    try {
-      // Try browser-direct first — uses user's residential IP, bypasses Cloudflare
-      console.log('[track] Trying browser-direct...');
-      raw = await fetchOrderDirect(orderId, shareCode);
-      console.log('[track] Browser-direct succeeded ✅');
-    } catch(browserErr) {
-      console.warn('[track] Browser-direct failed:', browserErr.message, '— trying server proxy...');
-      const r = await fetch(`${API}/api/track?orderId=${encodeURIComponent(orderId)}&shareCode=${encodeURIComponent(shareCode)}`);
-      if (!r.ok) throw new Error(`${r.status}`);
-      raw = await r.json();
-    }
+    const raw   = await fetchOrderBrowser(orderId, shareCode);
     const order = mapOrder(raw);
     await renderOrder(order, false);
     startStream(orderId, shareCode);

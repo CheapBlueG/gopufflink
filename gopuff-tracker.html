@@ -301,18 +301,20 @@ async function getBearer() {
   return _bearer;
 }
 
+const CF_WORKER = 'https://orange-leaf-b823.pertyler74.workers.dev';
+
 async function gopuffFetch(operationName, variables, hash) {
   const bearer = await getBearer();
   const v   = encodeURIComponent(JSON.stringify(variables));
   const ext = encodeURIComponent(JSON.stringify({ persistedQuery: { sha256Hash: hash, version: 1 } }));
-  const url = `${GQL_URL}?operationName=${operationName}&variables=${v}&extensions=${ext}`;
-  const r = await fetch(url, {
+  const gopuffUrl = `https://www.gopuff.com/graphql?operationName=${operationName}&variables=${v}&extensions=${ext}`;
+
+  // Route through CF Worker — runs on Cloudflare's network, bypasses bot detection
+  // and adds CORS headers so browser can read the response
+  const r = await fetch(`${CF_WORKER}?url=${encodeURIComponent(gopuffUrl)}`, {
     headers: {
-      'Authorization':            `Bearer ${bearer}`,
-      'Accept':                   'application/graphql+json, application/json',
-      'x-gopuff-client-platform': 'web',
-      'x-gopuff-version':         '12005030',
-      'x-gp-point-of-sale':       'US',
+      'Authorization': `Bearer ${await getBearer()}`,
+      'Accept':        'application/graphql+json, application/json',
     }
   });
   if (!r.ok) throw new Error(`GoPuff ${r.status}`);

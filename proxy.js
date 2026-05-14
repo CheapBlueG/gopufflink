@@ -43,18 +43,22 @@ async function fetchOrderByPage(orderId, shareCode) {
   await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36');
   await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
 
-  let orderData    = null;
-  let productData  = null;
+  let orderData   = null;
+  let productData = null;
 
-  // Intercept GoPuff's own API responses
+  // Log ALL responses to see what the page is actually loading
   page.on('response', async (response) => {
-    const url = response.url();
+    const url    = response.url();
+    const status = response.status();
+    if (url.includes('gopuff.com')) {
+      console.log(`[intercept] ${status} ${url.slice(0, 100)}`);
+    }
     if (!url.includes('/graphql')) return;
     try {
       const json = await response.json().catch(() => null);
       if (!json) return;
-      if (json?.data?.orderProgress)      { orderData   = json; console.log('[intercept] ✅ Order data captured'); }
-      if (json?.data?.view?.products)     { productData = json; console.log('[intercept] ✅ Product data captured'); }
+      if (json?.data?.orderProgress)  { orderData   = json; console.log('[intercept] ✅ Order data captured'); }
+      if (json?.data?.view?.products) { productData = json; console.log('[intercept] ✅ Product data captured'); }
     } catch(e) {}
   });
 
@@ -62,9 +66,14 @@ async function fetchOrderByPage(orderId, shareCode) {
   console.log(`[browser] Loading: ${trackingUrl}`);
 
   try {
-    await page.goto(trackingUrl, { waitUntil: 'networkidle2', timeout: 45000 });
-    // Give page time to complete all API calls
-    await new Promise(r => setTimeout(r, 5000));
+    await page.goto(trackingUrl, { waitUntil: 'load', timeout: 45000 });
+    const finalUrl = page.url();
+    const title    = await page.title();
+    console.log(`[browser] Final URL: ${finalUrl}`);
+    console.log(`[browser] Page title: ${title}`);
+    // Wait longer for JS to execute and make API calls
+    await new Promise(r => setTimeout(r, 8000));
+    console.log(`[browser] Order data: ${orderData ? '✅' : '❌'}`);
   } catch(e) {
     console.warn('[browser] Page load warning:', e.message);
   } finally {

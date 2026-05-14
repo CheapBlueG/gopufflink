@@ -46,7 +46,22 @@ function generateShortId() {
 }
 
 function isGoPuffUrl(text) {
-  return /gopuff\.com.*(order-tracker|track)/i.test(text);
+  return /gopuff\.com\/(order-progress|go\/order-tracker|go\/track)/i.test(text);
+}
+
+// Extract orderId + shareCode from real GoPuff URL format:
+// https://www.gopuff.com/order-progress/7257794672?share=aAPNYVf21l5cqKg
+function parseGoPuffUrl(text) {
+  try {
+    const url   = new URL(text.startsWith('http') ? text : 'https://' + text);
+    const match = url.pathname.match(/\/order-progress\/(\d+)/);
+    return {
+      orderId:   match ? match[1] : url.searchParams.get('orderId'),
+      shareCode: url.searchParams.get('share') || url.searchParams.get('shareCode'),
+    };
+  } catch(e) {
+    return { orderId: null, shareCode: null };
+  }
 }
 
 // ── BOT ───────────────────────────────────────────────────────────────────────
@@ -132,9 +147,15 @@ bot.on('message', async (msg) => {
   let shortId;
   do { shortId = generateShortId(); } while (store.has(shortId));
 
+  // Parse the URL to confirm we got orderId + shareCode
+  const { orderId, shareCode } = parseGoPuffUrl(text);
+  const orderLabel = orderId ? `Order #${orderId}` : 'Order';
+
   // Store it
   store.set(shortId, {
     gopuffUrl:  text,
+    orderId,
+    shareCode,
     chatId,
     createdAt:  Date.now(),
   });
@@ -144,6 +165,7 @@ bot.on('message', async (msg) => {
 
   bot.sendMessage(chatId,
     `✅ *Live tracking link created!*\n\n` +
+    `📦 ${orderLabel}\n` +
     `🔗 \`${trackUrl}\`\n\n` +
     `Share this with your client — they'll see:\n` +
     `• 📍 Live driver location on a map\n` +

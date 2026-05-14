@@ -8,18 +8,36 @@ const express = require('express');
 const cors    = require('cors');
 const path    = require('path');
 const fetch   = require('node-fetch');
-const { HttpsProxyAgent } = require('hpagent');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 
-// ── RESIDENTIAL PROXY ─────────────────────────────────────────────────────────
-const PROXY_USER = process.env.PROXY_USER || 'f2813c73';
-const PROXY_PASS = process.env.PROXY_PASS || 'a5ac849ba05a';
-const PROXY_HOST = process.env.PROXY_HOST || '38.129.182.103:23683';
-const agent = new HttpsProxyAgent({ proxy: `http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}` });
+// ── PROXY SETUP ───────────────────────────────────────────────────────────────
+// ScraperAPI handles Cloudflare bypass with real residential IPs.
+// Sign up free at scraperapi.com and set SCRAPER_API_KEY env var.
+// Falls back to custom residential proxy if SCRAPER_API_KEY not set.
+const PROXY_USER    = process.env.PROXY_USER    || '';
+const PROXY_PASS    = process.env.PROXY_PASS    || '';
+const PROXY_HOST    = process.env.PROXY_HOST    || '';
+const SCRAPER_KEY   = process.env.SCRAPER_API_KEY || '';
+
+function makeAgent() {
+  if (SCRAPER_KEY) {
+    console.log('[proxy] Using ScraperAPI residential proxy');
+    return new HttpsProxyAgent(`http://scraperapi:${SCRAPER_KEY}@proxy-server.scraperapi.com:8001`);
+  }
+  if (PROXY_HOST) {
+    console.log('[proxy] Using custom residential proxy');
+    return new HttpsProxyAgent(`http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}`);
+  }
+  console.warn('[proxy] ⚠️  No proxy configured — direct requests will be blocked by Cloudflare');
+  return null;
+}
+
+const agent = makeAgent();
 
 // ── GOPUFF CONSTANTS ──────────────────────────────────────────────────────────
 const GQL = 'https://www.gopuff.com/graphql';
@@ -95,11 +113,10 @@ async function gqlGet(operationName, variables, hash) {
   const ext = encodeURIComponent(JSON.stringify({ persistedQuery: { sha256Hash: hash, version: 1 } }));
   const url = `${GQL}?operationName=${operationName}&variables=${v}&extensions=${ext}`;
 
-  // Try residential proxy first, then direct
-  const attempts = [
-    { label: 'proxy',  opts: { agent, headers: HEADERS() } },
-    { label: 'direct', opts: { headers: HEADERS() } },
-  ];
+  // Build attempt list — skip proxy if no agent configured
+  const attempts = [];
+  if (agent) attempts.push({ label: 'proxy',  opts: { agent, headers: HEADERS() } });
+  attempts.push(  { label: 'direct', opts: { headers: HEADERS() } });
 
   for (const { label, opts } of attempts) {
     try {

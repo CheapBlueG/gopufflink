@@ -392,7 +392,6 @@ function renderItems(products, packedMap) {
           ? `<img
                src="${imgUrl}"
                alt="${title}"
-               crossorigin="anonymous"
                onload="var s=document.getElementById('shim-${p.productId}');if(s)s.remove();this.style.opacity='1'"
                onerror="var s=document.getElementById('shim-${p.productId}');if(s)s.remove();this.style.display='none';this.nextSibling.style.display='flex'"
                style="opacity:0;transition:opacity 0.3s"
@@ -631,7 +630,7 @@ function loadDemo() {
 async function handleTrack() {
   const raw=document.getElementById('trackInput').value.trim();
   if(!raw){alert('Paste a tracking link first.');return;}
-  if(raw.includes('demo')||raw.includes('7257794672')){loadDemo();return;}
+  if(raw.includes('demo')){loadDemo();return;}
 
   const {orderId,shareCode}=parseTrackingUrl(raw);
   if(!orderId||!shareCode){

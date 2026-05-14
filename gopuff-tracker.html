@@ -303,27 +303,25 @@ async function fetchProducts(ids) {
 }
 
 // ─── URL PARSING ──────────────────────────────────────────────────────────────
-// GoPuff tracking URLs come in multiple forms. We support:
-//   https://www.gopuff.com/go/order-tracker?orderId=123&shareCode=ABC
-//   https://www.gopuff.com/go/order-tracker/ABC   (shareCode only, orderId in QS or path)
-//   https://gopuff.com/go/track?orderId=123&shareCode=ABC  (SMS variant)
+// Real GoPuff tracking URL format:
+//   https://www.gopuff.com/order-progress/7257794672?share=aAPNYVf21l5cqKg
+//   orderId  → path segment after /order-progress/
+//   shareCode → ?share= query param
 function parseTrackingUrl(raw) {
   try {
     const url = new URL(raw.startsWith('http') ? raw : 'https://' + raw);
     const params = url.searchParams;
-    const orderId   = params.get('orderId')   || params.get('order_id')   || null;
-    const shareCode = params.get('shareCode') || params.get('share_code') || null;
-    // Some URLs encode shareCode in the path: /order-tracker/aAPNYVf21I5cqKg
-    const pathParts = url.pathname.split('/').filter(Boolean);
-    const pathToken = pathParts[pathParts.length - 1];
-    // A numeric-only path segment is orderId; alphanumeric is shareCode
-    const pathIsNumeric = /^\d+$/.test(pathToken);
-    return {
-      orderId:   orderId   || (pathIsNumeric ? pathToken : null),
-      shareCode: shareCode || (!pathIsNumeric ? pathToken : null),
-    };
+
+    // Extract shareCode from ?share= param
+    const shareCode = params.get('share') || params.get('shareCode') || params.get('share_code') || null;
+
+    // Extract orderId from path: /order-progress/7257794672
+    const pathMatch = url.pathname.match(/\/order-progress\/(\d+)/);
+    const orderId   = pathMatch ? pathMatch[1] : (params.get('orderId') || params.get('order_id') || null);
+
+    return { orderId, shareCode };
   } catch(e) {
-    return { orderId: null, shareCode: raw.trim() };
+    return { orderId: null, shareCode: null };
   }
 }
 

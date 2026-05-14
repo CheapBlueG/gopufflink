@@ -44,7 +44,6 @@ async function solveTurnstile(pageUrl, siteKey) {
       task: {
         type:       'AntiCloudflareTask',
         websiteURL: pageUrl,
-        websiteKey: siteKey || '0x4AAAAAAA',
         proxy:      '',
       }
     })

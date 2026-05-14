@@ -301,18 +301,23 @@ async function getBearer() {
   return _bearer;
 }
 
-const CF_WORKER = 'https://orange-leaf-b823.pertyler74.workers.dev';
+const CF_WORKER = '';
 
 async function gopuffFetch(operationName, variables, hash) {
-  const v   = encodeURIComponent(JSON.stringify(variables));
-  const ext = encodeURIComponent(JSON.stringify({ persistedQuery: { sha256Hash: hash, version: 1 } }));
-  const gopuffUrl = `https://www.gopuff.com/graphql?operationName=${operationName}&variables=${v}&extensions=${ext}`;
-
-  // CF Worker adds CORS headers so browser can read the response
-  // No Authorization — shareCode in variables authenticates shared tracking
-  const r = await fetch(`${CF_WORKER}?url=${encodeURIComponent(gopuffUrl)}`);
-  if (!r.ok) throw new Error(`GoPuff ${r.status}`);
-  return r.json();
+  // All GoPuff calls go through server (Puppeteer browser with cf_clearance)
+  if (operationName === 'GetSharedOrderStatus') {
+    const { orderId, shareCode } = variables;
+    const r = await fetch(`${API}/api/track?orderId=${encodeURIComponent(orderId)}&shareCode=${encodeURIComponent(shareCode)}`);
+    if (!r.ok) throw new Error(`GoPuff ${r.status}`);
+    return r.json();
+  }
+  if (operationName === 'Products') {
+    const ids = variables.productIds.join(',');
+    const r = await fetch(`${API}/api/products?ids=${ids}`);
+    if (!r.ok) throw new Error(`GoPuff ${r.status}`);
+    return r.json();
+  }
+  throw new Error(`Unknown operation: ${operationName}`);
 }
 
 // Fetch order status directly from browser

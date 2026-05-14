@@ -11,6 +11,7 @@ const fetch   = require('node-fetch');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
 // ── PLAYWRIGHT STEALTH — gets real cf_clearance cookies from GoPuff ──────────
+process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(__dirname, 'browsers');
 const { chromium } = require('playwright-extra');
 const stealth      = require('puppeteer-extra-plugin-stealth');
 chromium.use(stealth());

@@ -1,8 +1,18 @@
 FROM node:20-bullseye-slim
 
-# Install Chromium via apt — reliable, no path issues
 RUN apt-get update && apt-get install -y \
     chromium \
+    fonts-liberation \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    xdg-utils \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
@@ -16,4 +26,4 @@ RUN npm install
 COPY . .
 
 EXPOSE 10000
-CMD ["node", "index.js"]
+CMD ["node", "--max-old-space-size=512", "index.js"]

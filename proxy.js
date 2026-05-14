@@ -1,6 +1,7 @@
-const express  = require('express');
-const cors     = require('cors');
-const path     = require('path');
+const express   = require('express');
+const cors      = require('cors');
+const path      = require('path');
+const fetch     = require('node-fetch');
 const puppeteer = require('puppeteer-extra');
 const Stealth   = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(Stealth());
@@ -9,9 +10,9 @@ const app  = express();
 const PORT = process.env.PORT || 3000;
 app.use(cors());
 
-const HASH_PRODUCTS = '05f6be4b25f1fc8c6e8bcf89f51f00bcc3e4dade63875d33cd3f6bc5ca0e9c87';
-const GQL           = 'https://www.gopuff.com/graphql';
 const CHROMIUM      = process.env.CHROMIUM_PATH || '/usr/bin/chromium';
+const CAPSOLVER_KEY = process.env.CAPSOLVER_KEY || '';
+const HASH_PRODUCTS = '05f6be4b25f1fc8c6e8bcf89f51f00bcc3e4dade63875d33cd3f6bc5ca0e9c87';
 
 let _browser = null;
 
@@ -19,17 +20,130 @@ async function getBrowser() {
   if (!_browser) {
     _browser = await puppeteer.launch({
       executablePath: CHROMIUM,
-      headless: true,
+      headless: 'new',
       args: [
         '--no-sandbox','--disable-setuid-sandbox',
         '--disable-dev-shm-usage','--disable-gpu',
-        '--no-zygote','--disable-extensions',
-        '--no-first-run','--mute-audio',
+        '--no-zygote','--window-size=1280,800',
       ],
     });
     console.log('[browser] ✅ Chromium launched');
   }
   return _browser;
+}
+
+// ── CAPSOLVER: solve Cloudflare Turnstile ─────────────────────────────────────
+async function solveTurnstile(pageUrl, siteKey) {
+  if (!CAPSOLVER_KEY) throw new Error('No CAPSOLVER_KEY set');
+  console.log('[capsolver] Solving Cloudflare challenge...');
+
+  // Create task
+  const createRes = await fetch('https://api.capsolver.com/createTask', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      clientKey: CAPSOLVER_KEY,
+      task: {
+        type:    'AntiCloudflareTask',
+        websiteURL: pageUrl,
+        websiteKey: siteKey || '0x4AAAAAAA',
+        proxy:   '',
+      }
+    })
+  });
+  const createData = await createRes.json();
+  if (createData.errorId) throw new Error(`Capsolver create error: ${createData.errorDescription}`);
+  const taskId = createData.taskId;
+  console.log(`[capsolver] Task created: ${taskId}`);
+
+  // Poll for result
+  for (let i = 0; i < 24; i++) {
+    await new Promise(r => setTimeout(r, 5000));
+    const resultRes = await fetch('https://api.capsolver.com/getTaskResult', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientKey: CAPSOLVER_KEY, taskId })
+    });
+    const result = await resultRes.json();
+    if (result.status === 'ready') {
+      console.log('[capsolver] ✅ Challenge solved');
+      return result.solution;
+    }
+    console.log(`[capsolver] Waiting... (${i+1}/24)`);
+  }
+  throw new Error('Capsolver timeout');
+}
+
+// ── FETCH ORDER PAGE WITH CHALLENGE SOLVING ───────────────────────────────────
+async function fetchOrderByPage(orderId, shareCode) {
+  const browser      = await getBrowser();
+  const page         = await browser.newPage();
+  await page.setViewport({ width: 1280, height: 800 });
+  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36');
+  await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
+
+  let orderData   = null;
+  let productData = null;
+
+  page.on('response', async (response) => {
+    const url = response.url();
+    if (!url.includes('/graphql')) return;
+    try {
+      const json = await response.json().catch(() => null);
+      if (!json) return;
+      if (json?.data?.orderProgress)  { orderData   = json; console.log('[intercept] ✅ Order'); }
+      if (json?.data?.view?.products) { productData = json; console.log('[intercept] ✅ Products'); }
+    } catch(e) {}
+  });
+
+  const trackingUrl = `https://www.gopuff.com/order-progress/${orderId}?share=${shareCode}`;
+  console.log(`[browser] Loading ${trackingUrl}`);
+
+  try {
+    await page.goto(trackingUrl, { waitUntil: 'load', timeout: 45000 });
+    const title = await page.title();
+    console.log(`[browser] Title: ${title}`);
+
+    if (title.includes('moment') || title.includes('Cloudflare')) {
+      console.log('[browser] Cloudflare challenge detected — using Capsolver...');
+
+      // Extract Turnstile sitekey from page
+      const siteKey = await page.evaluate(() => {
+        const el = document.querySelector('[data-sitekey]');
+        return el ? el.getAttribute('data-sitekey') : null;
+      }).catch(() => null);
+      console.log(`[browser] Sitekey: ${siteKey || 'not found, using default'}`);
+
+      const solution = await solveTurnstile(trackingUrl, siteKey);
+
+      // Inject the token and submit the challenge
+      if (solution?.token) {
+        await page.evaluate((token) => {
+          const input = document.querySelector('[name="cf-turnstile-response"]') ||
+                        document.querySelector('input[type="hidden"]');
+          if (input) input.value = token;
+          const form = document.querySelector('form');
+          if (form) form.submit();
+        }, solution.token);
+        await page.waitForNavigation({ waitUntil: 'load', timeout: 30000 }).catch(() => {});
+        console.log(`[browser] After solve title: ${await page.title()}`);
+      }
+
+      // Wait for GoPuff's JS to run and make API calls
+      await new Promise(r => setTimeout(r, 8000));
+    } else {
+      await new Promise(r => setTimeout(r, 6000));
+    }
+
+    console.log(`[browser] Order: ${orderData ? '✅' : '❌'}`);
+  } catch(e) {
+    console.warn('[browser] Error:', e.message);
+  } finally {
+    await page.close();
+  }
+
+  if (!orderData) throw new Error('No order data captured');
+  return { order: orderData, products: productData };
 }
 
 // ── INTERCEPT APPROACH ────────────────────────────────────────────────────────

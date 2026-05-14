@@ -301,21 +301,21 @@ async function getBearer() {
   return _bearer;
 }
 
-const CF_WORKER = '';
-
 async function gopuffFetch(operationName, variables, hash) {
-  // All GoPuff calls go through server (Puppeteer browser with cf_clearance)
   if (operationName === 'GetSharedOrderStatus') {
     const { orderId, shareCode } = variables;
     const r = await fetch(`${API}/api/track?orderId=${encodeURIComponent(orderId)}&shareCode=${encodeURIComponent(shareCode)}`);
     if (!r.ok) throw new Error(`GoPuff ${r.status}`);
-    return r.json();
+    const data = await r.json();
+    // Cache product data if it came bundled with the order
+    if (data.products?.data?.view?.products) {
+      parseProductResponse(data.products);
+    }
+    return data.order;
   }
   if (operationName === 'Products') {
-    const ids = variables.productIds.join(',');
-    const r = await fetch(`${API}/api/products?ids=${ids}`);
-    if (!r.ok) throw new Error(`GoPuff ${r.status}`);
-    return r.json();
+    // Products already cached from order fetch — no separate call needed
+    return { data: { view: { products: [] } } };
   }
   throw new Error(`Unknown operation: ${operationName}`);
 }

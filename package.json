@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "postinstall": "npx playwright install chromium"
+    "postinstall": "PLAYWRIGHT_BROWSERS_PATH=./browsers npx playwright install chromium --with-deps"
   },
   "dependencies": {
     "cors": "^2.8.5",

@@ -111,37 +111,48 @@ function scheduleTokenRefresh() {
 async function gqlGet(operationName, variables, hash) {
   const v   = encodeURIComponent(JSON.stringify(variables));
   const ext = encodeURIComponent(JSON.stringify({ persistedQuery: { sha256Hash: hash, version: 1 } }));
-  const url = `${GQL}?operationName=${operationName}&variables=${v}&extensions=${ext}`;
+  const gopuffUrl = `${GQL}?operationName=${operationName}&variables=${v}&extensions=${ext}`;
 
-  // Build attempt list — skip proxy if no agent configured
-  const attempts = [];
-  if (agent) attempts.push({ label: 'proxy',  opts: { agent, headers: HEADERS() } });
-  attempts.push(  { label: 'direct', opts: { headers: HEADERS() } });
-
-  for (const { label, opts } of attempts) {
+  // ── Attempt 1: ScraperAPI (handles Cloudflare bypass) ────────────────────
+  if (SCRAPER_KEY) {
     try {
-      console.log(`[gql] ${operationName} → ${label}`);
-      const r = await fetch(url, opts);
-      console.log(`[gql] ${operationName} ← ${r.status} (${label})`);
-
-      if (r.status === 401) {
-        await refreshGuestToken();
-        const r2 = await fetch(url, { ...opts, headers: HEADERS() });
-        if (!r2.ok) throw new Error(`GoPuff ${r2.status} after token refresh`);
-        return r2.json();
-      }
-
-      if (!r.ok) {
-        const body = await r.text().catch(() => '');
-        throw new Error(`GoPuff ${r.status}: ${body.slice(0, 200)}`);
-      }
-
-      return r.json();
+      const scraperUrl = `https://api.scraperapi.com?api_key=${SCRAPER_KEY}&url=${encodeURIComponent(gopuffUrl)}&keep_headers=true&render=false`;
+      console.log(`[gql] ${operationName} → ScraperAPI`);
+      const r = await fetch(scraperUrl, { headers: HEADERS() });
+      console.log(`[gql] ${operationName} ← ${r.status} (ScraperAPI)`);
+      if (r.status === 401) { await refreshGuestToken(); }
+      if (r.ok) return r.json();
+      const body = await r.text().catch(() => '');
+      throw new Error(`ScraperAPI ${r.status}: ${body.slice(0, 200)}`);
     } catch (err) {
-      console.error(`[gql] ${operationName} ${label} failed:`, err.message);
-      if (label === 'direct') throw err;
+      console.error(`[gql] ScraperAPI failed:`, err.message);
     }
   }
+
+  // ── Attempt 2: Custom residential proxy ──────────────────────────────────
+  if (agent) {
+    try {
+      console.log(`[gql] ${operationName} → proxy`);
+      const r = await fetch(gopuffUrl, { agent, headers: HEADERS() });
+      console.log(`[gql] ${operationName} ← ${r.status} (proxy)`);
+      if (r.status === 401) { await refreshGuestToken(); }
+      if (r.ok) return r.json();
+      const body = await r.text().catch(() => '');
+      throw new Error(`Proxy ${r.status}: ${body.slice(0, 200)}`);
+    } catch (err) {
+      console.error(`[gql] Proxy failed:`, err.message);
+    }
+  }
+
+  // ── Attempt 3: Direct (will 403 on Cloudflare-protected routes) ──────────
+  console.log(`[gql] ${operationName} → direct`);
+  const r = await fetch(gopuffUrl, { headers: HEADERS() });
+  console.log(`[gql] ${operationName} ← ${r.status} (direct)`);
+  if (!r.ok) {
+    const body = await r.text().catch(() => '');
+    throw new Error(`GoPuff ${r.status}: ${body.slice(0, 200)}`);
+  }
+  return r.json();
 }
 
 // ── SHARED STORE ──────────────────────────────────────────────────────────────

@@ -301,15 +301,16 @@ async function getBearer() {
   return _bearer;
 }
 
+const CF_WORKER = 'https://orange-leaf-b823.pertyler74.workers.dev';
+
 async function gopuffFetch(operationName, variables, hash) {
   const v   = encodeURIComponent(JSON.stringify(variables));
   const ext = encodeURIComponent(JSON.stringify({ persistedQuery: { sha256Hash: hash, version: 1 } }));
-  const url = `${GQL_URL}?operationName=${operationName}&variables=${v}&extensions=${ext}`;
+  const gopuffUrl = `https://www.gopuff.com/graphql?operationName=${operationName}&variables=${v}&extensions=${ext}`;
 
-  // Simple GET — no Authorization header, no CORS preflight
-  // shareCode in the variables authenticates shared order tracking
-  // Client's residential IP passes Cloudflare, server never touches GoPuff
-  const r = await fetch(url);
+  // CF Worker adds CORS headers so browser can read the response
+  // No Authorization — shareCode in variables authenticates shared tracking
+  const r = await fetch(`${CF_WORKER}?url=${encodeURIComponent(gopuffUrl)}`);
   if (!r.ok) throw new Error(`GoPuff ${r.status}`);
   return r.json();
 }

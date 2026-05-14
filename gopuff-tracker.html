@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GoPuff Order Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root{--bg:#07080d;--surface:#0f1117;--surface2:#161921;--surface3:#1e2230;--border:rgba(255,255,255,0.07);--accent:#4af0a0;--accent2:#3dd6f5;--warn:#f5a623;--text:#f0f2f8;--muted:#6b7280;--muted2:#9ca3af;--radius:16px;--radius-sm:10px;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min-height:100vh;overflow-x:hidden;}
+  body::before{content:'';position:fixed;inset:0;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");pointer-events:none;z-index:0;opacity:0.5;}
+  .wrap{position:relative;z-index:1;max-width:980px;margin:0 auto;padding:28px 20px 80px;}
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid var(--border);}
+  .logo{display:flex;align-items:center;gap:12px;font-family:'Syne',sans-serif;font-weight:800;font-size:22px;}
+  .logo-icon{width:40px;height:40px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;}
+  .badge{background:rgba(74,240,160,0.12);color:var(--accent);font-size:11px;font-weight:500;padding:4px 10px;border-radius:100px;border:1px solid rgba(74,240,160,0.25);}
+  .badge.pulse::before{content:'';display:inline-block;width:6px;height:6px;background:var(--accent);border-radius:50%;margin-right:6px;animation:blink 1.5s infinite;vertical-align:middle;}
+  @keyframes blink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.8)}}
+  .input-section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;margin-bottom:24px;}
+  .input-label{font-family:'Syne',sans-serif;font-size:12px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--muted2);margin-bottom:10px;}
+  .input-row{display:flex;gap:10px;}
+  .track-input{flex:1;background:var(--surface2);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:13px 16px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;outline:none;transition:border-color 0.2s;}
+  .track-input:focus{border-color:rgba(74,240,160,0.5);}
+  .track-input::placeholder{color:var(--muted);}
+  .track-btn{background:var(--accent);color:#07080d;border:none;border-radius:var(--radius-sm);padding:13px 24px;font-family:'Syne',sans-serif;font-weight:700;font-size:14px;cursor:pointer;transition:opacity 0.2s,transform 0.1s;white-space:nowrap;}
+  .track-btn:hover{opacity:0.88;}
+  .track-btn:active{transform:scale(0.97);}
+  .input-hint{margin-top:8px;font-size:12px;color:var(--muted);}
+  .input-hint a{color:var(--accent2);text-decoration:none;}
+  .preceding-banner{background:rgba(245,166,35,0.08);border:1px solid rgba(245,166,35,0.25);border-radius:var(--radius);padding:14px 20px;display:flex;align-items:center;gap:12px;margin-bottom:16px;font-size:13px;color:var(--warn);}
+  .status-banner{background:linear-gradient(135deg,rgba(74,240,160,0.08),rgba(61,214,245,0.06));border:1px solid rgba(74,240,160,0.2);border-radius:var(--radius);padding:20px 24px;display:flex;align-items:center;gap:16px;margin-bottom:20px;animation:fadeUp 0.3s ease both;}
+  .status-icon{width:52px;height:52px;flex-shrink:0;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;}
+  .status-text h2{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;}
+  .status-text p{color:var(--muted2);font-size:13px;margin-top:3px;}
+  .eta-chip{margin-left:auto;text-align:right;flex-shrink:0;}
+  .eta-chip .time{font-family:'Syne',sans-serif;font-size:26px;font-weight:800;color:var(--accent);line-height:1;}
+  .eta-chip .label{font-size:11px;color:var(--muted);letter-spacing:0.5px;text-transform:uppercase;margin-top:3px;}
+  .steps-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px 20px 0;margin-bottom:20px;}
+  .steps{display:flex;align-items:flex-start;}
+  .step{flex:1;display:flex;flex-direction:column;align-items:center;position:relative;z-index:1;}
+  .step:not(:last-child)::after{content:'';position:absolute;top:16px;left:50%;width:100%;height:2px;background:var(--surface3);z-index:0;}
+  .step.done:not(:last-child)::after{background:var(--accent);}
+  .step.active:not(:last-child)::after{background:linear-gradient(90deg,var(--accent),var(--surface3));}
+  .step-dot{width:32px;height:32px;border-radius:50%;background:var(--surface3);border:2px solid var(--surface3);display:flex;align-items:center;justify-content:center;font-size:13px;position:relative;z-index:2;}
+  .step.done .step-dot{background:var(--accent);border-color:var(--accent);color:#07080d;}
+  .step.active .step-dot{background:transparent;border-color:var(--accent);color:var(--accent);animation:stepPulse 2s infinite;}
+  @keyframes stepPulse{0%,100%{box-shadow:0 0 0 4px rgba(74,240,160,0.15)}50%{box-shadow:0 0 0 8px rgba(74,240,160,0.05)}}
+  .step-label{font-size:11px;font-weight:500;color:var(--muted);margin-top:7px;text-align:center;line-height:1.3;padding-bottom:16px;}
+  .step.done .step-label,.step.active .step-label{color:var(--text);}
+  .map-section{margin-bottom:20px;position:relative;border-radius:var(--radius);overflow:hidden;border:1px solid var(--border);}
+  #liveMap{height:340px;width:100%;background:var(--surface2);}
+  .leaflet-tile{filter:brightness(0.6) contrast(1.1) saturate(0.45) hue-rotate(185deg);}
+  .leaflet-container{background:#07080d;}
+  .leaflet-control-attribution{display:none;}
+  .leaflet-control-zoom a{background:var(--surface2)!important;color:var(--text)!important;border-color:var(--border)!important;}
+  .map-overlay-bar{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(0deg,rgba(7,8,13,0.92) 0%,rgba(7,8,13,0.55) 60%,transparent 100%);padding:20px 20px 16px;display:flex;align-items:flex-end;justify-content:space-between;pointer-events:none;z-index:500;}
+  .map-driver-info{display:flex;align-items:center;gap:12px;}
+  .map-avatar{width:44px;height:44px;background:var(--surface3);border:2px solid var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;}
+  .map-driver-text .name{font-family:'Syne',sans-serif;font-weight:700;font-size:14px;}
+  .map-driver-text .vehicle{font-size:12px;color:var(--muted2);margin-top:2px;}
+  .map-distance{text-align:right;}
+  .map-distance .dist{font-family:'Syne',sans-serif;font-weight:800;font-size:20px;color:var(--accent);}
+  .map-distance .dist-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;}
+  .map-live-badge{position:absolute;top:12px;right:12px;background:rgba(7,8,13,0.8);border:1px solid rgba(74,240,160,0.3);border-radius:8px;padding:6px 12px;font-size:12px;color:var(--accent);font-weight:600;backdrop-filter:blur(8px);z-index:500;display:flex;align-items:center;gap:6px;}
+  .map-live-badge::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--accent);animation:blink 1.5s infinite;}
+  .driver-dot{width:36px;height:36px;background:var(--accent);border:3px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 0 0 6px rgba(74,240,160,0.25),0 4px 14px rgba(0,0,0,0.6);animation:driverPulse 2s infinite;}
+  @keyframes driverPulse{0%,100%{box-shadow:0 0 0 6px rgba(74,240,160,0.25),0 4px 14px rgba(0,0,0,0.6)}50%{box-shadow:0 0 0 12px rgba(74,240,160,0.08),0 4px 14px rgba(0,0,0,0.6)}}
+  .grid{display:grid;grid-template-columns:1fr 320px;gap:16px;}
+  @media(max-width:720px){.grid{grid-template-columns:1fr}.input-row{flex-direction:column}}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:22px;animation:fadeUp 0.4s ease both;}
+  .card+.card{margin-top:14px;}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+  .card-title{font-family:'Syne',sans-serif;font-weight:700;font-size:13px;letter-spacing:0.5px;color:var(--muted2);text-transform:uppercase;margin-bottom:18px;display:flex;align-items:center;gap:8px;}
+  .card-title::after{content:'';flex:1;height:1px;background:var(--border);}
+  /* Product item cards — image-forward grid */
+  .items-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;}
+  .item-card{background:var(--surface2);border:1px solid var(--border);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;transition:border-color 0.2s;}
+  .item-card:hover{border-color:rgba(74,240,160,0.25);}
+  .item-card.packed{border-color:rgba(74,240,160,0.15);}
+  .item-img-wrap{width:100%;aspect-ratio:1;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;}
+  .item-img-wrap img{width:100%;height:100%;object-fit:contain;padding:12px;transition:transform 0.3s;}
+  .item-card:hover .item-img-wrap img{transform:scale(1.04);}
+  .item-img-fallback{font-size:40px;opacity:0.4;}
+  .item-img-shimmer{position:absolute;inset:0;background:linear-gradient(90deg,var(--surface2) 0%,var(--surface3) 50%,var(--surface2) 100%);background-size:200% 100%;animation:shimmer 1.4s infinite;}
+  @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+  .item-pack-status{position:absolute;top:8px;right:8px;}
+  .item-body{padding:10px 12px 12px;}
+  .item-brand{font-size:10px;color:var(--accent2);font-weight:700;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:3px;}
+  .item-name{font-weight:500;font-size:13px;line-height:1.35;color:var(--text);}
+  .item-footer{display:flex;align-items:center;justify-content:space-between;margin-top:8px;gap:6px;flex-wrap:wrap;}
+  .item-price{font-family:'Syne',sans-serif;font-weight:800;font-size:14px;color:var(--accent);}
+  .item-price.free{color:var(--accent2);}
+  .qty-badge{background:var(--surface3);color:var(--muted2);font-size:11px;font-weight:600;padding:2px 7px;border-radius:100px;}
+  .packed-badge{background:rgba(74,240,160,0.12);color:var(--accent);font-size:11px;font-weight:600;padding:2px 7px;border-radius:100px;}
+  .unpacked-badge{background:rgba(245,166,35,0.1);color:var(--warn);font-size:11px;font-weight:600;padding:2px 7px;border-radius:100px;}
+  .free-badge{background:rgba(61,214,245,0.1);color:var(--accent2);font-size:11px;font-weight:600;padding:2px 7px;border-radius:100px;}
+  .total-rows{display:flex;flex-direction:column;gap:8px;margin-top:14px;}
+  .total-row{display:flex;justify-content:space-between;font-size:13px;color:var(--muted2);}
+  .total-row.grand{font-family:'Syne',sans-serif;font-weight:700;font-size:15px;color:var(--text);padding-top:10px;border-top:1px solid var(--border);}
+  .packing-bar-bg{height:4px;background:var(--surface3);border-radius:4px;overflow:hidden;margin-top:10px;}
+  .packing-bar-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:4px;transition:width 0.6s ease;}
+  .packing-label{font-size:12px;color:var(--muted2);margin-top:6px;}
+  .driver-row{display:flex;align-items:center;gap:12px;}
+  .driver-avatar{width:50px;height:50px;background:linear-gradient(135deg,#2a3a5c,#1e2845);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;border:2px solid var(--border);}
+  .driver-info{flex:1;}
+  .driver-name{font-family:'Syne',sans-serif;font-weight:700;font-size:15px;}
+  .driver-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+  .call-btn{width:38px;height:38px;background:var(--surface3);border:1px solid var(--border);border-radius:9px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px;}
+  .info-rows{display:flex;flex-direction:column;gap:9px;}
+  .info-row{display:flex;justify-content:space-between;align-items:center;font-size:13px;}
+  .info-key{color:var(--muted);}
+  .info-val{font-weight:500;font-size:13px;}
+  .info-val.green{color:var(--accent);}
+  .info-val.blue{color:var(--accent2);}
+  .empty-state{text-align:center;padding:60px 20px;}
+  .empty-icon{font-size:52px;margin-bottom:14px;opacity:0.6;}
+  .empty-title{font-family:'Syne',sans-serif;font-size:20px;font-weight:700;margin-bottom:8px;}
+  .empty-sub{color:var(--muted2);font-size:14px;line-height:1.6;}
+  .demo-btn{margin-top:20px;background:transparent;border:1.5px solid var(--accent);color:var(--accent);border-radius:var(--radius-sm);padding:11px 22px;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;cursor:pointer;transition:background 0.2s,color 0.2s;}
+  .demo-btn:hover{background:var(--accent);color:#07080d;}
+  .loading{display:flex;align-items:center;justify-content:center;gap:10px;padding:40px;color:var(--muted2);font-size:14px;}
+  .spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .hidden{display:none;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo"><div class="logo-icon">🐾</div>GoPuff Tracker</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span class="badge pulse" id="liveBadge" style="display:none">Live</span>
+      <span class="badge" id="demoBadge">Demo</span>
+    </div>
+  </header>
+
+  <div class="input-section">
+    <div class="input-label">🔗 Tracking Link</div>
+    <div class="input-row">
+      <input class="track-input" id="trackInput" type="text" placeholder="Paste your GoPuff tracking link...">
+      <button class="track-btn" onclick="handleTrack()">Track Order</button>
+    </div>
+    <p class="input-hint">Paste the full GoPuff tracking URL · <a href="#" onclick="loadDemo();return false">Load demo →</a></p>
+  </div>
+
+  <div id="emptyState">
+    <div class="empty-state">
+      <div class="empty-icon">📦</div>
+      <div class="empty-title">Paste a tracking link to get started</div>
+      <p class="empty-sub">Preview the full experience with a live demo order.</p>
+      <button class="demo-btn" onclick="loadDemo()">View Demo Order</button>
+    </div>
+  </div>
+  <div id="loadingState" class="hidden"><div class="loading"><div class="spinner"></div>Fetching order data...</div></div>
+
+  <div id="trackerUI" class="hidden">
+    <div id="precedingBanner" class="preceding-banner hidden">
+      ⏳ &nbsp;Your driver has <strong id="precedingCount">1</strong> stop before yours. Hang tight!
+    </div>
+    <div class="status-banner">
+      <div class="status-icon" id="statusIcon">🛵</div>
+      <div class="status-text"><h2 id="statusTitle">In Transit</h2><p id="statusSub">Your driver is on the way</p></div>
+      <div class="eta-chip"><div class="time" id="etaTime">—</div><div class="label" id="etaLabel">ETA</div></div>
+    </div>
+    <div class="steps-card">
+      <div class="steps">
+        <div class="step" id="step0"><div class="step-dot">📋</div><div class="step-label">Order<br>Placed</div></div>
+        <div class="step" id="step1"><div class="step-dot">📦</div><div class="step-label">Being<br>Packed</div></div>
+        <div class="step" id="step2"><div class="step-dot">🛵</div><div class="step-label">In<br>Transit</div></div>
+        <div class="step" id="step3"><div class="step-dot">✅</div><div class="step-label">Delivered</div></div>
+      </div>
+    </div>
+    <div class="map-section">
+      <div id="liveMap"></div>
+      <div class="map-live-badge">Live Tracking</div>
+      <div class="map-overlay-bar">
+        <div class="map-driver-info">
+          <div class="map-avatar" id="mapAvatar">🛵</div>
+          <div class="map-driver-text"><div class="name" id="mapDriverName">—</div><div class="vehicle" id="mapVehicle">—</div></div>
+        </div>
+        <div class="map-distance"><div class="dist" id="mapDist">—</div><div class="dist-label">away</div></div>
+      </div>
+    </div>
+    <div class="grid">
+      <div>
+        <div class="card">
+          <div class="card-title">Order Items</div>
+          <div id="orderItems"></div>
+          <div id="orderTotals"></div>
+        </div>
+      </div>
+      <div>
+        <div class="card">
+          <div class="card-title">Driver</div>
+          <div class="driver-row">
+            <div class="driver-avatar" id="driverAvatar">🧑</div>
+            <div class="driver-info"><div class="driver-name" id="driverName">—</div><div class="driver-sub" id="driverVehicle">—</div></div>
+            <div class="call-btn">📞</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Order Info</div>
+          <div class="info-rows">
+            <div class="info-row"><span class="info-key">Order ID</span><span class="info-val blue" id="orderId">—</span></div>
+            <div class="info-row"><span class="info-key">ETA window</span><span class="info-val" id="etaWindow">—</span></div>
+            <div class="info-row"><span class="info-key">Zone</span><span class="info-val" id="zoneId">—</span></div>
+            <div class="info-row"><span class="info-key">Packed by</span><span class="info-val" id="packerName">—</span></div>
+            <div class="info-row"><span class="info-key">Next up</span><span class="info-val green" id="nextUp">—</span></div>
+            <div class="info-row"><span class="info-key">Status</span><span class="info-val green" id="orderStatus">—</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+const API = 'http://localhost:3000'; // change to your deployed proxy URL
+
+const PHASE_MAP = {'Received':0,'Packing':1,'Packed':1,'OutForDelivery':2,'InTransit':2,'Delivered':3};
+const STATUS_META = [
+  {icon:'📋',title:'Order Received',sub:'Your order is confirmed'},
+  {icon:'📦',title:'Being Packed',sub:'Preparing your items now'},
+  {icon:'🛵',title:'In Transit',sub:'Your driver is on the way'},
+  {icon:'✅',title:'Delivered!',sub:'Order complete — enjoy!'},
+];
+const MODALITY_MAP = {'BIKE':{label:'Bicycle',emoji:'🚲'},'CAR':{label:'Car',emoji:'🚗'},'FOOT':{label:'On foot',emoji:'🚶'},'MOPED':{label:'Moped',emoji:'🛵'}};
+
+// ─── PRODUCT CATALOG (real data from your API response, used for demo) ────────
+const DEMO_CATALOG = {
+  // Waterloo 12pk Sparkling Blackberry Lemonade Water 12oz Can
+  80213: {
+    title:'Waterloo Sparkling Blackberry Lemonade 12pk',
+    brand:'Waterloo', price:8.69, sizeWithPack:'12oz | 12pk',
+    imageUrl:'https://images.gopuff.com/blob/gopuffcatalogstorageprod/catalog-images-container/resize/cf/version=1_2,format=auto,fit=scale-down,width=800,height=800/3765394b-b10b-42af-8b42-f88c1ce3037a.png',
+    bgColor:'#7f84d8',
+  },
+  // Vita Coco Pure Coconut Water 4pk 1L Ctn- XL
+  255746: {
+    title:'Vita Coco Pure Coconut Water 4pk',
+    brand:'Vita Coco', price:20.79, sizeWithPack:'1L | 4pk',
+    imageUrl:'https://images.gopuff.com/blob/gopuffcatalogstorageprod/catalog-images-container/resize/cf/version=1_2,format=auto,fit=scale-down,width=800,height=800/69f18819-d475-4735-8764-657f05791fac-padded.png',
+    bgColor:'#90b9ff',
+  },
+  // Gatorade Lower Sugar Glacier Cherry 12ct 12oz Btl
+  383946: {
+    title:'Gatorade Lower Sugar Glacier Cherry 12ct',
+    brand:'Gatorade', price:14.99, sizeWithPack:'12oz | 12pk',
+    imageUrl:'https://images.gopuff.com/blob/gopuffcatalogstorageprod/catalog-images-container/resize/cf/version=1_2,format=auto,fit=scale-down,width=800,height=800/7cefc8db-6e72-4ddf-9d93-b396352f2191-background_removed.png',
+    bgColor:'#87f4ac',
+  },
+  // Fresh Grocery In-Bag Sample (GoPuff promo item, $0.01)
+  211168: {
+    title:'Fresh Grocery In-Bag Sample',
+    brand:'GoPuff', price:0.01, sizeWithPack:'1ct',
+    imageUrl:'https://images.gopuff.com/blob/gopuffcatalogstorageprod/catalog-images-container/resize/cf/version=1_2,format=auto,fit=scale-down,width=800,height=800/62ede006-60ef-4530-99a9-e1375ddaf498.png',
+    bgColor:'#ffffb1', isFree:true,
+  },
+};
+
+let productCache = {};
+
+// Parse data.view.products[] from GoPuff Products GraphQL response
+function parseProductResponse(raw) {
+  const list = raw?.data?.view?.products || [];
+  list.forEach(p => {
+    const img = p.tileImages?.[0];
+    productCache[p.id] = {
+      title:       p.title,
+      brand:       p.brand,
+      price:       p.price,
+      sizeWithPack:p.sizeWithPack || p.size || '',
+      imageUrl:    img?.url || '',
+      bgColor:     img?.backgroundColors?.[0] || '#1e2230',
+      isFree:      p.price <= 0.01,
+    };
+  });
+}
+
+// Fetch real ETA range from DeliveryEstimate endpoint
+async function fetchEstimate(zoneId, lat, lng) {
+  try {
+    const r = await fetch(`${API}/api/estimate?zoneId=${zoneId}&lat=${lat}&lng=${lng}`);
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (d.from != null && d.to != null) return `${d.from}–${d.to} min`;
+  } catch(e) {}
+  return null;
+}
+
+async function fetchProducts(ids) {
+  const missing = ids.filter(id => !productCache[id]);
+  if (!missing.length) return;
+  try {
+    const r = await fetch(`${API}/api/products?ids=${missing.join(',')}`);
+    if (r.ok) parseProductResponse(await r.json());
+  } catch(e) { /* silent — demo catalog covers known IDs */ }
+}
+
+// ─── URL PARSING ──────────────────────────────────────────────────────────────
+// GoPuff tracking URLs come in multiple forms. We support:
+//   https://www.gopuff.com/go/order-tracker?orderId=123&shareCode=ABC
+//   https://www.gopuff.com/go/order-tracker/ABC   (shareCode only, orderId in QS or path)
+//   https://gopuff.com/go/track?orderId=123&shareCode=ABC  (SMS variant)
+function parseTrackingUrl(raw) {
+  try {
+    const url = new URL(raw.startsWith('http') ? raw : 'https://' + raw);
+    const params = url.searchParams;
+    const orderId   = params.get('orderId')   || params.get('order_id')   || null;
+    const shareCode = params.get('shareCode') || params.get('share_code') || null;
+    // Some URLs encode shareCode in the path: /order-tracker/aAPNYVf21I5cqKg
+    const pathParts = url.pathname.split('/').filter(Boolean);
+    const pathToken = pathParts[pathParts.length - 1];
+    // A numeric-only path segment is orderId; alphanumeric is shareCode
+    const pathIsNumeric = /^\d+$/.test(pathToken);
+    return {
+      orderId:   orderId   || (pathIsNumeric ? pathToken : null),
+      shareCode: shareCode || (!pathIsNumeric ? pathToken : null),
+    };
+  } catch(e) {
+    return { orderId: null, shareCode: raw.trim() };
+  }
+}
+
+// ─── mapOrder() ───────────────────────────────────────────────────────────────
+function mapOrder(raw) {
+  const op  = raw.data.orderProgress;
+  const del = raw.data.delivery || {};
+  const statusIndex = PHASE_MAP[op.phase] ?? 0;
+
+  let eta='—', etaWindow='—';
+  if (op.estimatedFinishedAt?.min) {
+    const minMs = new Date(op.estimatedFinishedAt.min).getTime();
+    const maxMs = new Date(op.estimatedFinishedAt.max).getTime();
+    const diffMin = Math.max(0,Math.round(((minMs+maxMs)/2-Date.now())/60000));
+    eta = statusIndex===3 ? 'Done ✓' : diffMin<=0 ? 'Arriving…' : `~${diffMin} min`;
+    const fmt = t => new Date(t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    etaWindow = `${fmt(minMs)} – ${fmt(maxMs)}`;
+  }
+
+  const vi  = op.courierInformation?.vehicleInformation || {};
+  const mod = MODALITY_MAP[vi.modality] || null;
+
+  const productMap = {};
+  op.order.products.forEach(p => {
+    productMap[p.productId] ? productMap[p.productId].quantity += p.quantity : (productMap[p.productId]={...p});
+  });
+  const packedMap = {};
+  op.productProgress.forEach(p => { packedMap[p.productId]=p; });
+  const products   = Object.values(productMap);
+  const totalItems = products.reduce((s,p)=>s+p.quantity,0);
+  const packedItems= op.productProgress.reduce((s,p)=>s+(p.packedQuantity||0),0);
+
+  return {
+    statusIndex, eta, etaWindow,
+    orderId:'#'+op.orderId, zoneId:op.deliveryZoneId,
+    packerName:op.packerInformation?.name||'—',
+    driver:{name:op.courierInformation?.name||'En route',vehicle:mod?mod.label:[vi.make,vi.model].filter(Boolean).join(' ')||'GoPuff Driver',emoji:mod?.emoji||'🛵'},
+    driverLat:op.driverLocation?.latitude??null,
+    driverLng:op.driverLocation?.longitude??null,
+    destLat:op.destination?.latitude, destLng:op.destination?.longitude,
+    products, packedMap, totalItems, packedItems, total:op.total,
+    preceding:typeof del.precedingDeliveries==='number'?del.precedingDeliveries:null,
+  };
+}
+
+// ─── RENDER ITEMS ─────────────────────────────────────────────────────────────
+function renderItems(products, packedMap) {
+  const cards = products.map(p => {
+    const prog   = packedMap[p.productId] || {};
+    const info   = productCache[p.productId] || {};
+    const title  = info.title       || `Product #${p.productId}`;
+    const brand  = info.brand       || '';
+    const size   = info.sizeWithPack|| '';
+    const price  = info.price != null ? Number(info.price) : null;
+    const imgUrl = info.imageUrl    || '';
+    const bg     = info.bgColor     || '#1e2230';
+    const isFree = info.isFree      || false;
+    const packed = prog.isPacked;
+
+    // Subtle gradient overlay using the product's brand color
+    const bgStyle = `background:linear-gradient(145deg,${bg}33,${bg}11)`;
+
+    return `
+    <div class="item-card ${packed ? 'packed' : ''}">
+      <div class="item-img-wrap" style="${bgStyle}">
+        <div class="item-img-shimmer" id="shim-${p.productId}"></div>
+        ${imgUrl
+          ? `<img
+               src="${imgUrl}"
+               alt="${title}"
+               crossorigin="anonymous"
+               onload="var s=document.getElementById('shim-${p.productId}');if(s)s.remove();this.style.opacity='1'"
+               onerror="var s=document.getElementById('shim-${p.productId}');if(s)s.remove();this.style.display='none';this.nextSibling.style.display='flex'"
+               style="opacity:0;transition:opacity 0.3s"
+             >
+             <div class="item-img-fallback" style="display:none">📦</div>`
+          : `<div class="item-img-fallback">📦</div>`}
+        <div class="item-pack-status">
+          ${packed
+            ? `<span class="packed-badge">✓</span>`
+            : `<span class="unpacked-badge">⏳</span>`}
+        </div>
+      </div>
+      <div class="item-body">
+        ${brand ? `<div class="item-brand">${brand}</div>` : ''}
+        <div class="item-name">${title}</div>
+        <div class="item-footer">
+          <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
+            ${size ? `<span style="font-size:11px;color:var(--muted)">${size}</span>` : ''}
+            <span class="qty-badge">×${p.quantity}</span>
+            ${isFree ? `<span class="free-badge">🎁 FREE</span>` : ''}
+          </div>
+          ${price != null
+            ? `<div class="item-price ${isFree ? 'free' : ''}">${isFree ? 'FREE' : `$${price.toFixed(2)}`}</div>`
+            : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div class="items-grid">${cards}</div>`;
+}
+
+// ─── MAP ──────────────────────────────────────────────────────────────────────
+let map=null,driverMarker=null,destMarker=null,routeLine=null;
+let demoInterval=null,pollInterval=null,_destLat,_destLng,_driverEmoji='🛵';
+
+function initMap(dLat,dLng,dstLat,dstLng,emoji) {
+  if(map){map.remove();map=null;driverMarker=null;destMarker=null;routeLine=null;}
+  _destLat=dstLat;_destLng=dstLng;_driverEmoji=emoji||'🛵';
+  map=L.map('liveMap',{zoomControl:true,scrollWheelZoom:false});
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+  const destIcon=L.divIcon({className:'',html:`<div style="width:22px;height:22px;background:#ff5f5f;border:3px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 8px rgba(0,0,0,0.5)"></div>`,iconSize:[22,22],iconAnchor:[11,22]});
+  destMarker=L.marker([dstLat,dstLng],{icon:destIcon}).addTo(map);
+  if(dLat!=null&&dLng!=null){
+    const di=L.divIcon({className:'',html:`<div class="driver-dot">${_driverEmoji}</div>`,iconSize:[36,36],iconAnchor:[18,18]});
+    driverMarker=L.marker([dLat,dLng],{icon:di}).addTo(map);
+    routeLine=L.polyline([[dLat,dLng],[dstLat,dstLng]],{color:'#4af0a0',weight:3,opacity:0.75,dashArray:'8 6'}).addTo(map);
+    map.fitBounds([[dLat,dLng],[dstLat,dstLng]],{padding:[52,52]});
+  } else map.setView([dstLat,dstLng],15);
+}
+
+function moveDriver(lat,lng) {
+  if(!map||lat==null||lng==null)return;
+  if(!driverMarker){
+    const di=L.divIcon({className:'',html:`<div class="driver-dot">${_driverEmoji}</div>`,iconSize:[36,36],iconAnchor:[18,18]});
+    driverMarker=L.marker([lat,lng],{icon:di}).addTo(map);
+    routeLine=L.polyline([[lat,lng],[_destLat,_destLng]],{color:'#4af0a0',weight:3,opacity:0.75,dashArray:'8 6'}).addTo(map);
+  } else {
+    driverMarker.setLatLng([lat,lng]);
+    if(routeLine)routeLine.setLatLngs([[lat,lng],[_destLat,_destLng]]);
+  }
+  const d=map.distance([lat,lng],[_destLat,_destLng]);
+  document.getElementById('mapDist').textContent=(d*0.000621371).toFixed(2)+' mi';
+}
+
+function startDemoMovement(o) {
+  clearInterval(demoInterval);
+  if(o.driverLat==null)return;
+  let lat=o.driverLat,lng=o.driverLng;
+  const s=100,dl=(o.destLat-lat)/s,dg=(o.destLng-lng)/s;let i=0;
+  demoInterval=setInterval(()=>{
+    if(i>=s){i=0;lat=o.driverLat;lng=o.driverLng;}
+    lat+=dl+(Math.random()-0.5)*0.00005;lng+=dg+(Math.random()-0.5)*0.00005;
+    moveDriver(lat,lng);i++;
+  },2000);
+}
+
+// ─── RENDER ───────────────────────────────────────────────────────────────────
+async function renderOrder(order, isDemo) {
+  const sm=STATUS_META[order.statusIndex];
+  document.getElementById('statusIcon').textContent=sm.icon;
+  document.getElementById('statusTitle').textContent=sm.title;
+  document.getElementById('statusSub').textContent=sm.sub;
+  document.getElementById('etaTime').textContent=order.eta;
+  document.getElementById('etaLabel').textContent=order.statusIndex===3?'':'ETA';
+  const pb=document.getElementById('precedingBanner');
+  if(order.preceding!=null&&order.preceding>0){document.getElementById('precedingCount').textContent=order.preceding;pb.classList.remove('hidden');}
+  else pb.classList.add('hidden');
+  [0,1,2,3].forEach(i=>{
+    const el=document.getElementById('step'+i);el.className='step';
+    if(i<order.statusIndex){el.classList.add('done');el.querySelector('.step-dot').textContent='✓';}
+    else if(i===order.statusIndex)el.classList.add('active');
+  });
+  document.getElementById('mapAvatar').textContent=order.driver.emoji;
+  document.getElementById('mapDriverName').textContent=order.driver.name;
+  document.getElementById('mapVehicle').textContent=order.driver.vehicle;
+  document.getElementById('driverAvatar').textContent=order.driver.emoji;
+  document.getElementById('driverName').textContent=order.driver.name;
+  document.getElementById('driverVehicle').textContent=order.driver.vehicle;
+  document.getElementById('orderId').textContent=order.orderId;
+  document.getElementById('etaWindow').textContent=order.etaWindow;
+  document.getElementById('zoneId').textContent='Zone '+order.zoneId;
+  document.getElementById('packerName').textContent=order.packerName;
+  document.getElementById('nextUp').textContent=order.preceding===0?"You're next! 🎉":`${order.preceding} stop(s) before you`;
+  document.getElementById('orderStatus').textContent=sm.title;
+  document.getElementById('orderItems').innerHTML=renderItems(order.products,order.packedMap);
+  const pct=order.totalItems>0?Math.round((order.packedItems/order.totalItems)*100):0;
+  document.getElementById('orderTotals').innerHTML=`<div class="total-rows"><div class="packing-label" style="margin-top:12px">${order.packedItems} of ${order.totalItems} items packed (${pct}%)</div><div class="packing-bar-bg"><div class="packing-bar-fill" style="width:${pct}%"></div></div><div class="total-row grand" style="margin-top:14px"><span>Order Total</span><span>$${order.total.toFixed(2)}</span></div></div>`;
+  document.getElementById('emptyState').classList.add('hidden');
+  document.getElementById('loadingState').classList.add('hidden');
+  document.getElementById('trackerUI').classList.remove('hidden');
+  document.getElementById('liveBadge').style.display=isDemo?'none':'';
+  document.getElementById('demoBadge').style.display=isDemo?'':'none';
+  setTimeout(()=>{
+    initMap(order.driverLat,order.driverLng,order.destLat,order.destLng,order.driver.emoji);
+    if(isDemo)startDemoMovement(order);else if(order.driverLat!=null)moveDriver(order.driverLat,order.driverLng);
+  },120);
+  // Fetch real ETA range + product images in parallel
+  const ids = order.products.map(p=>p.productId);
+  const [estEta] = await Promise.all([
+    isDemo ? Promise.resolve(null) : fetchEstimate(order.zoneId, order.destLat, order.destLng),
+    fetchProducts(ids),
+  ]);
+  if (estEta && order.statusIndex < 3) {
+    document.getElementById('etaTime').textContent = estEta;
+  }
+  document.getElementById('orderItems').innerHTML=renderItems(order.products,order.packedMap);
+}
+
+// ─── REAL-TIME STREAM (replaces polling) ──────────────────────────────────────
+let eventSource = null;
+
+function startStream(orderId, shareCode) {
+  // Close any existing connection
+  if (eventSource) { eventSource.close(); eventSource = null; }
+  clearInterval(pollInterval);
+
+  console.log('[stream] Connecting to real-time driver stream...');
+  eventSource = new EventSource(`${API}/api/stream`);
+
+  eventSource.onopen = () => {
+    console.log('[stream] Connected — live driver updates active');
+    document.getElementById('liveBadge').style.display = '';
+  };
+
+  eventSource.onmessage = (e) => {
+    if (!e.data || e.data.startsWith(':')) return; // skip SSE comments/heartbeats
+    try {
+      const msg = JSON.parse(e.data);
+      console.log('[stream] Event:', msg);
+
+      // Driver location push — update map marker instantly
+      if (msg.latitude != null && msg.longitude != null) {
+        moveDriver(msg.latitude, msg.longitude);
+      }
+      // Nested location formats GoPuff may use
+      if (msg.driverLocation?.latitude != null) {
+        moveDriver(msg.driverLocation.latitude, msg.driverLocation.longitude);
+      }
+      if (msg.location?.lat != null) {
+        moveDriver(msg.location.lat, msg.location.lng);
+      }
+
+      // Phase / status change
+      if (msg.phase || msg.orderPhase || msg.status) {
+        const phase = msg.phase || msg.orderPhase || msg.status;
+        const idx = PHASE_MAP[phase];
+        if (idx != null) {
+          const sm = STATUS_META[idx];
+          document.getElementById('statusTitle').textContent = sm.title;
+          document.getElementById('statusSub').textContent   = sm.sub;
+          document.getElementById('statusIcon').textContent  = sm.icon;
+          document.getElementById('orderStatus').textContent = sm.title;
+          [0,1,2,3].forEach(i => {
+            const el = document.getElementById('step'+i);
+            el.className = 'step';
+            if (i < idx) { el.classList.add('done'); el.querySelector('.step-dot').textContent='✓'; }
+            else if (i === idx) el.classList.add('active');
+          });
+          if (idx === 3) { // Delivered
+            document.getElementById('etaTime').textContent  = 'Done ✓';
+            document.getElementById('etaLabel').textContent = '';
+            eventSource.close();
+          }
+        }
+      }
+
+      // ETA push
+      if (msg.eta || msg.estimatedArrival) {
+        const eta = msg.eta || msg.estimatedArrival;
+        document.getElementById('etaTime').textContent = typeof eta === 'number' ? `~${eta} min` : eta;
+      }
+
+    } catch(err) {
+      // Not JSON — may be raw SSE text, log and ignore
+      console.log('[stream] Non-JSON event:', e.data);
+    }
+  };
+
+  eventSource.onerror = (err) => {
+    console.warn('[stream] SSE error — falling back to 5s poll', err);
+    eventSource.close();
+    eventSource = null;
+    // Graceful fallback to polling if stream fails
+    startPolling(orderId, shareCode);
+  };
+}
+
+// ─── POLLING FALLBACK ─────────────────────────────────────────────────────────
+function startPolling(orderId, shareCode) {
+  clearInterval(pollInterval);
+  pollInterval=setInterval(async()=>{
+    try{
+      const r=await fetch(`${API}/api/track?orderId=${encodeURIComponent(orderId)}&shareCode=${encodeURIComponent(shareCode)}`);
+      if(!r.ok)return;
+      const order=mapOrder(await r.json());
+      moveDriver(order.driverLat,order.driverLng);
+      document.getElementById('etaTime').textContent=order.eta;
+      document.getElementById('orderStatus').textContent=STATUS_META[order.statusIndex].title;
+      document.getElementById('nextUp').textContent=order.preceding===0?"You're next! 🎉":`${order.preceding} stop(s) before you`;
+    }catch(e){}
+  },5000);
+}
+
+// ─── DEMO ─────────────────────────────────────────────────────────────────────
+const DEMO_RAW={"data":{"orderProgress":{"orderId":"7257794672","order":{"currencyCode":null,"products":[{"productId":80213,"quantity":1},{"productId":255746,"quantity":1},{"productId":255746,"quantity":1},{"productId":383946,"quantity":1},{"productId":211168,"quantity":1}],"fulfillmentType":"DELIVERY"},"productProgress":[{"isPacked":true,"packedQuantity":1,"productId":80213,"quantity":1},{"isPacked":true,"packedQuantity":1,"productId":383946,"quantity":1},{"isPacked":true,"packedQuantity":1,"productId":211168,"quantity":1},{"isPacked":true,"packedQuantity":2,"productId":255746,"quantity":2}],"courierInformation":{"name":"Jorden","vehicleInformation":{"modality":"BIKE","make":"","model":"","identifier":null}},"packerInformation":{"name":"Devion"},"phase":"InTransit","estimatedFinishedAt":{"min":"2026-05-14T04:47:31.591944444Z","max":"2026-05-14T04:57:31.591944444Z"},"deliveryZoneId":554,"driverLocation":{"latitude":40.69915419707283,"longitude":-73.89950659733633},"destination":{"latitude":40.697672,"longitude":-73.935513},"total":73.21,"eventStreamUrl":null},"delivery":{"precedingDeliveries":0}}};
+
+function loadDemo() {
+  clearInterval(pollInterval); clearInterval(demoInterval);
+  if (eventSource) { eventSource.close(); eventSource = null; }
+  productCache={...DEMO_CATALOG};
+  document.getElementById('trackInput').value='gopuff.com/go/order-tracker/7257794672';
+  renderOrder(mapOrder(DEMO_RAW),true);
+}
+
+async function handleTrack() {
+  const raw=document.getElementById('trackInput').value.trim();
+  if(!raw){alert('Paste a tracking link first.');return;}
+  if(raw.includes('demo')||raw.includes('7257794672')){loadDemo();return;}
+
+  const {orderId,shareCode}=parseTrackingUrl(raw);
+  if(!orderId||!shareCode){
+    alert('Could not find orderId + shareCode in that URL.\n\nExpected format:\ngopuff.com/go/order-tracker?orderId=123&shareCode=ABC');
+    return;
+  }
+
+  clearInterval(demoInterval);
+  document.getElementById('emptyState').classList.add('hidden');
+  document.getElementById('trackerUI').classList.add('hidden');
+  document.getElementById('loadingState').classList.remove('hidden');
+
+  try{
+    const r=await fetch(`${API}/api/track?orderId=${encodeURIComponent(orderId)}&shareCode=${encodeURIComponent(shareCode)}`);
+    if(!r.ok)throw new Error(`${r.status}`);
+    const order=mapOrder(await r.json());
+    await renderOrder(order,false);
+    startStream(orderId, shareCode); // real-time SSE — falls back to poll if stream fails
+  }catch(e){
+    document.getElementById('loadingState').classList.add('hidden');
+    document.getElementById('emptyState').classList.remove('hidden');
+    document.getElementById('emptyState').querySelector('.empty-title').textContent='Could not load order';
+    document.getElementById('emptyState').querySelector('.empty-sub').textContent=`Proxy error: ${e.message}. Check proxy.js is running on ${API}`;
+  }
+}
+
+document.getElementById('trackInput').addEventListener('keydown',e=>{if(e.key==='Enter')handleTrack();});
+
+// Auto-load if opened via a short link: groceriesarecool.com/t/XXXXXXXX
+(async () => {
+  const shortMatch = window.location.pathname.match(/\/t\/([a-f0-9]{8})/i);
+  if (shortMatch) {
+    const shortId = shortMatch[1];
+    try {
+      document.getElementById('emptyState').classList.add('hidden');
+      document.getElementById('loadingState').classList.remove('hidden');
+      const r = await fetch(`${API}/api/resolve/${shortId}`);
+      if (!r.ok) throw new Error('Link not found');
+      const { url } = await r.json();
+      document.getElementById('trackInput').value = url;
+      await handleTrack();
+    } catch(e) {
+      document.getElementById('loadingState').classList.add('hidden');
+      document.getElementById('emptyState').classList.remove('hidden');
+      document.getElementById('emptyState').querySelector('.empty-title').textContent = 'Link not found';
+      document.getElementById('emptyState').querySelector('.empty-sub').textContent = 'This tracking link may have expired.';
+    }
+  } else {
+    loadDemo();
+  }
+})();
+</script>
+</body>
+</html>

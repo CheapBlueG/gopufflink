@@ -119,19 +119,19 @@ async function gqlGet(operationName, variables, hash) {
   const ext = encodeURIComponent(JSON.stringify({ persistedQuery: { sha256Hash: hash, version: 1 } }));
   const gopuffUrl = `${GQL}?operationName=${operationName}&variables=${v}&extensions=${ext}`;
 
-  // ── Attempt 1: ScraperAPI (handles Cloudflare bypass) ────────────────────
-  if (SCRAPER_KEY) {
+  // ── Attempt 1: ZenRows (handles Cloudflare bypass on free tier) ─────────
+  const ZENROWS_KEY = process.env.ZENROWS_API_KEY || '';
+  if (ZENROWS_KEY) {
     try {
-      const scraperUrl = `https://api.scraperapi.com?api_key=${SCRAPER_KEY}&url=${encodeURIComponent(gopuffUrl)}&keep_headers=true&render=false&premium=true`;
-      console.log(`[gql] ${operationName} → ScraperAPI`);
-      const r = await fetch(scraperUrl, { headers: HEADERS() });
-      console.log(`[gql] ${operationName} ← ${r.status} (ScraperAPI)`);
-      if (r.status === 401) { await refreshGuestToken(); }
+      const zenUrl = `https://api.zenrows.com/v1/?apikey=${ZENROWS_KEY}&url=${encodeURIComponent(gopuffUrl)}&js_render=false&premium_proxy=true`;
+      console.log(`[gql] ${operationName} → ZenRows`);
+      const r = await fetch(zenUrl, { headers: HEADERS() });
+      console.log(`[gql] ${operationName} ← ${r.status} (ZenRows)`);
       if (r.ok) return r.json();
       const body = await r.text().catch(() => '');
-      throw new Error(`ScraperAPI ${r.status}: ${body.slice(0, 200)}`);
+      throw new Error(`ZenRows ${r.status}: ${body.slice(0, 200)}`);
     } catch (err) {
-      console.error(`[gql] ScraperAPI failed:`, err.message);
+      console.error(`[gql] ZenRows failed:`, err.message);
     }
   }
 

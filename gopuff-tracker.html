@@ -301,22 +301,15 @@ async function getBearer() {
   return _bearer;
 }
 
-const CF_WORKER = 'https://orange-leaf-b823.pertyler74.workers.dev';
-
 async function gopuffFetch(operationName, variables, hash) {
-  const bearer = await getBearer();
   const v   = encodeURIComponent(JSON.stringify(variables));
   const ext = encodeURIComponent(JSON.stringify({ persistedQuery: { sha256Hash: hash, version: 1 } }));
-  const gopuffUrl = `https://www.gopuff.com/graphql?operationName=${operationName}&variables=${v}&extensions=${ext}`;
+  const url = `${GQL_URL}?operationName=${operationName}&variables=${v}&extensions=${ext}`;
 
-  // Route through CF Worker — runs on Cloudflare's network, bypasses bot detection
-  // and adds CORS headers so browser can read the response
-  const r = await fetch(`${CF_WORKER}?url=${encodeURIComponent(gopuffUrl)}`, {
-    headers: {
-      'Authorization': `Bearer ${await getBearer()}`,
-      'Accept':        'application/graphql+json, application/json',
-    }
-  });
+  // Simple GET — no Authorization header, no CORS preflight
+  // shareCode in the variables authenticates shared order tracking
+  // Client's residential IP passes Cloudflare, server never touches GoPuff
+  const r = await fetch(url);
   if (!r.ok) throw new Error(`GoPuff ${r.status}`);
   return r.json();
 }
@@ -739,9 +732,9 @@ async function handleTrack() {
 
 document.getElementById('trackInput').addEventListener('keydown',e=>{if(e.key==='Enter')handleTrack();});
 
-// Auto-load if opened via a short link: groceriesarecool.com/t/XXXXXXXX
+// Auto-load from clean URL: groceriesarecool.app/ccacbc7a
 (async () => {
-  const shortMatch = window.location.pathname.match(/\/t\/([a-f0-9]{8})/i);
+  const shortMatch = window.location.pathname.match(/^\/([a-f0-9]{8})$/i);
   if (shortMatch) {
     const shortId = shortMatch[1];
     try {
@@ -749,8 +742,9 @@ document.getElementById('trackInput').addEventListener('keydown',e=>{if(e.key===
       document.getElementById('loadingState').classList.remove('hidden');
       const r = await fetch(`${API}/api/resolve/${shortId}`);
       if (!r.ok) throw new Error('Link not found');
-      const { url } = await r.json();
-      document.getElementById('trackInput').value = url;
+      const { orderId, shareCode } = await r.json();
+      document.getElementById('trackInput').value =
+        `https://www.gopuff.com/order-progress/${orderId}?share=${shareCode}`;
       await handleTrack();
     } catch(e) {
       document.getElementById('loadingState').classList.add('hidden');

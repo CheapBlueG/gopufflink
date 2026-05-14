@@ -123,7 +123,7 @@ async function gqlGet(operationName, variables, hash) {
   const ZENROWS_KEY = process.env.ZENROWS_API_KEY || '';
   if (ZENROWS_KEY) {
     try {
-      const zenUrl = `https://api.zenrows.com/v1/?apikey=${ZENROWS_KEY}&url=${encodeURIComponent(gopuffUrl)}&js_render=false&premium_proxy=true`;
+      const zenUrl = `https://api.zenrows.com/v1/?apikey=${ZENROWS_KEY}&url=${encodeURIComponent(gopuffUrl)}&js_render=true&antibot=true&premium_proxy=true`;
       console.log(`[gql] ${operationName} → ZenRows`);
       const r = await fetch(zenUrl, { headers: HEADERS() });
       console.log(`[gql] ${operationName} ← ${r.status} (ZenRows)`);

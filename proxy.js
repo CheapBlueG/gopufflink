@@ -152,19 +152,18 @@ function scheduleTokenRefresh() {
   }
 }
 
-// ── BASE HEADERS (matching what the browser sends) ────────────────────────────
+// ── BASE HEADERS ─────────────────────────────────────────────────────────────
 const HEADERS = () => ({
   'Accept':                   'application/graphql+json, application/json',
-  'Accept-Language':          'en-US',
+  'Accept-Language':          'en-US,en;q=0.9',
+  'Accept-Encoding':          'gzip, deflate, br',
   'Authorization':            `Bearer ${BEARER}`,
-  'User-Agent':               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
-  'x-gopuff-client-platform': 'web',
-  'x-gopuff-client-version':  '12.5.30-193096',
+  'User-Agent':               'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+  'x-gopuff-client-platform': 'ios',
   'x-gopuff-version':         '12005030',
   'x-gp-point-of-sale':       'US',
-  'sec-fetch-dest':           'empty',
-  'sec-fetch-mode':           'cors',
-  'sec-fetch-site':           'same-origin',
+  'Origin':                   'https://www.gopuff.com',
+  'Referer':                  'https://www.gopuff.com/',
 });
 
 // ── GRAPHQL GET HELPER ────────────────────────────────────────────────────────
@@ -175,18 +174,37 @@ async function gqlGet(operationName, variables, hash) {
   }));
   const url = `${GQL}?operationName=${operationName}&variables=${v}&extensions=${e}`;
 
-  const r = await fetch(url, { agent, headers: HEADERS() });
+  // Try with residential proxy first, then fall back to direct
+  const attempts = [
+    { label: 'via proxy', options: { agent, headers: HEADERS() } },
+    { label: 'direct',    options: { headers: HEADERS() } },
+  ];
 
-  if (r.status === 401) {
-    // Token expired mid-session — refresh and retry once
-    await refreshGuestToken();
-    const r2 = await fetch(url, { agent, headers: HEADERS() });
-    if (!r2.ok) throw new Error(`GoPuff ${r2.status} after token refresh`);
-    return r2.json();
+  for (const attempt of attempts) {
+    try {
+      console.log(`[gql] ${operationName} — ${attempt.label}`);
+      const r = await fetch(url, attempt.options);
+      console.log(`[gql] ${operationName} → ${r.status}`);
+
+      if (r.status === 401) {
+        await refreshGuestToken();
+        const r2 = await fetch(url, { ...attempt.options, headers: HEADERS() });
+        if (!r2.ok) throw new Error(`GoPuff ${r2.status} after token refresh`);
+        return r2.json();
+      }
+
+      if (!r.ok) {
+        const body = await r.text().catch(() => '');
+        throw new Error(`GoPuff ${r.status}: ${body.slice(0, 200)}`);
+      }
+
+      return r.json();
+    } catch (err) {
+      console.error(`[gql] ${operationName} ${attempt.label} failed:`, err.message);
+      if (attempt.label === 'direct') throw err; // both failed
+    }
   }
-
-  if (!r.ok) throw new Error(`GoPuff ${r.status}: ${r.statusText}`);
-  return r.json();
+}
 }
 
 // ── ROUTE: GET /api/track ──────────────────────────────────────────────────────
@@ -351,11 +369,11 @@ app.get('/t/:shortId', (req, res) => {
     `);
   }
   // Serve the tracker — it will call /api/resolve on load
-  res.sendFile(path.join(__dirname, 'gopuff-tracker.html'));
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // ── SERVE TRACKER UI ──────────────────────────────────────────────────────────
-app.use(express.static(__dirname)); // put gopuff-tracker.html in ./public/index.html
+app.use(express.static('public')); // put gopuff-tracker.html in ./public/index.html
 
 // ── START ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, async () => {

@@ -27,7 +27,18 @@ async function getBrowser() {
     _browser = await puppeteer.launch({
       executablePath: CHROMIUM,
       headless: true,
-      args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--single-process'],
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-zygote',
+        '--disable-extensions',
+        '--disable-background-networking',
+        '--disable-default-apps',
+        '--mute-audio',
+        '--no-first-run',
+      ],
     });
     console.log('[browser] ✅ Chromium launched');
   }

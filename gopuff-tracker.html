@@ -301,23 +301,20 @@ async function getBearer() {
   return _bearer;
 }
 
+// CF Worker acts as CORS proxy only — real request comes from user's browser
+// Cloudflare sees the user's real residential IP and Chrome fingerprint
+const CF_WORKER = 'https://orange-leaf-b823.pertyler74.workers.dev';
+
 async function gopuffFetch(operationName, variables, hash) {
-  if (operationName === 'GetSharedOrderStatus') {
-    const { orderId, shareCode } = variables;
-    const r = await fetch(`${API}/api/track?orderId=${encodeURIComponent(orderId)}&shareCode=${encodeURIComponent(shareCode)}`);
-    if (!r.ok) throw new Error(`GoPuff ${r.status}`);
-    const data = await r.json();
-    // Cache product data if it came bundled with the order
-    if (data.products?.data?.view?.products) {
-      parseProductResponse(data.products);
-    }
-    return data.order;
-  }
-  if (operationName === 'Products') {
-    // Products already cached from order fetch — no separate call needed
-    return { data: { view: { products: [] } } };
-  }
-  throw new Error(`Unknown operation: ${operationName}`);
+  const v   = encodeURIComponent(JSON.stringify(variables));
+  const ext = encodeURIComponent(JSON.stringify({ persistedQuery: { sha256Hash: hash, version: 1 } }));
+  const gopuffUrl = `https://www.gopuff.com/graphql?operationName=${operationName}&variables=${v}&extensions=${ext}`;
+
+  // Request goes: Browser → CF Worker → GoPuff
+  // GoPuff sees the user's real browser headers/IP — passes Cloudflare
+  const r = await fetch(`${CF_WORKER}?url=${encodeURIComponent(gopuffUrl)}`);
+  if (!r.ok) throw new Error(`GoPuff ${r.status}`);
+  return r.json();
 }
 
 // Fetch order status directly from browser

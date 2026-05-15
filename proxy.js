@@ -43,12 +43,12 @@ async function fetchOrderByPage(orderId, shareCode) {
   console.log(`[bd] Loading ${trackingUrl}`);
 
   try {
-    await page.goto(trackingUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+    await page.goto(trackingUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
     const title = await page.title();
     console.log(`[bd] Title: ${title}`);
 
-    // Wait for GoPuff's JS to complete API calls
-    await new Promise(r => setTimeout(r, 6000));
+    // Wait for GoPuff's JS to make API calls
+    await new Promise(r => setTimeout(r, 10000));
     console.log(`[bd] Order: ${orderData ? '✅' : '❌'}`);
   } catch(e) {
     console.warn('[bd] Error:', e.message);

@@ -43,8 +43,13 @@ async function fetchOrderByPage(orderId, shareCode) {
   console.log(`[bd] Loading ${trackingUrl}`);
 
   try {
-    await page.goto(trackingUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
-    const title = await page.title();
+    try {
+      await page.goto(trackingUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    } catch(e) {
+      console.log(`[bd] Page load timeout — checking for intercepted data anyway...`);
+    }
+
+    const title = await page.title().catch(() => 'unknown');
     console.log(`[bd] Title: ${title}`);
 
     // Wait for GoPuff's JS to make API calls

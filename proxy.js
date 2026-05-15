@@ -1,86 +1,33 @@
 const express   = require('express');
 const cors      = require('cors');
 const path      = require('path');
-const fetch     = require('node-fetch');
-const puppeteer = require('puppeteer-extra');
-const Stealth   = require('puppeteer-extra-plugin-stealth');
-puppeteer.use(Stealth());
+const puppeteer = require('puppeteer-core');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
 app.use(cors());
 
-const CHROMIUM      = process.env.CHROMIUM_PATH || '/usr/bin/chromium';
-const CAPSOLVER_KEY = process.env.CAPSOLVER_KEY || '';
+const BD_WS = process.env.BRIGHTDATA_WS || '';
 
-let _browser = null;
+if (BD_WS) console.log('✅ Bright Data Scraping Browser configured');
+else        console.warn('⚠️  No BRIGHTDATA_WS set');
 
-async function getBrowser() {
-  if (!_browser) {
-    _browser = await puppeteer.launch({
-      executablePath: CHROMIUM,
-      headless: 'new',
-      args: [
-        '--no-sandbox', '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage', '--disable-gpu',
-        '--no-zygote', '--window-size=1280,800',
-      ],
-    });
-    console.log('[browser] ✅ Chromium launched');
-  }
-  return _browser;
-}
-
-// ── CAPSOLVER: solve Cloudflare Turnstile ─────────────────────────────────────
-async function solveTurnstile(pageUrl, siteKey) {
-  if (!CAPSOLVER_KEY) throw new Error('No CAPSOLVER_KEY set in env vars');
-  console.log('[capsolver] Solving challenge...');
-
-  const createRes = await fetch('https://api.capsolver.com/createTask', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      clientKey: CAPSOLVER_KEY,
-      task: {
-        type:       'AntiCloudflareTask',
-        websiteURL: pageUrl,
-        proxy:      '',
-      }
-    })
-  });
-  const createData = await createRes.json();
-  if (createData.errorId) throw new Error(`Capsolver: ${createData.errorDescription}`);
-  const taskId = createData.taskId;
-  console.log(`[capsolver] Task: ${taskId}`);
-
-  for (let i = 0; i < 24; i++) {
-    await new Promise(r => setTimeout(r, 5000));
-    const res  = await fetch('https://api.capsolver.com/getTaskResult', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientKey: CAPSOLVER_KEY, taskId })
-    });
-    const data = await res.json();
-    if (data.status === 'ready') {
-      console.log('[capsolver] ✅ Solved');
-      return data.solution;
-    }
-    console.log(`[capsolver] Waiting... ${i + 1}/24`);
-  }
-  throw new Error('Capsolver timeout');
-}
-
-// ── FETCH ORDER BY PAGE INTERCEPTION ─────────────────────────────────────────
+// ── FETCH ORDER BY INTERCEPTING GOPUFF'S OWN API CALLS ────────────────────────
+// Connect to Bright Data's remote browser (residential IP + Cloudflare bypass)
+// Navigate to the real GoPuff tracking page — their JS makes the API calls
+// We intercept the responses. No local browser, no proxy needed on our server.
 async function fetchOrderByPage(orderId, shareCode) {
-  const browser = await getBrowser();
-  const page    = await browser.newPage();
-  await page.setViewport({ width: 1280, height: 800 });
-  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36');
-  await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
+  if (!BD_WS) throw new Error('BRIGHTDATA_WS env var not set');
 
+  console.log('[bd] Connecting to Scraping Browser...');
+  const browser = await puppeteer.connect({ browserWSEndpoint: BD_WS });
+  console.log('[bd] ✅ Connected');
+
+  const page = await browser.newPage();
   let orderData   = null;
   let productData = null;
 
+  // Intercept GoPuff's own GraphQL responses
   page.on('response', async (response) => {
     const url = response.url();
     if (!url.includes('/graphql')) return;
@@ -93,46 +40,21 @@ async function fetchOrderByPage(orderId, shareCode) {
   });
 
   const trackingUrl = `https://www.gopuff.com/order-progress/${orderId}?share=${shareCode}`;
-  console.log(`[browser] Loading ${trackingUrl}`);
+  console.log(`[bd] Loading ${trackingUrl}`);
 
   try {
-    await page.goto(trackingUrl, { waitUntil: 'load', timeout: 45000 });
+    await page.goto(trackingUrl, { waitUntil: 'networkidle2', timeout: 60000 });
     const title = await page.title();
-    console.log(`[browser] Title: ${title}`);
+    console.log(`[bd] Title: ${title}`);
 
-    if (title.includes('moment') || title.includes('Cloudflare')) {
-      console.log('[browser] Cloudflare challenge — calling Capsolver...');
-
-      const siteKey = await page.evaluate(() => {
-        const el = document.querySelector('[data-sitekey]');
-        return el ? el.getAttribute('data-sitekey') : null;
-      }).catch(() => null);
-      console.log(`[browser] Sitekey: ${siteKey || 'not found'}`);
-
-      const solution = await solveTurnstile(trackingUrl, siteKey);
-
-      if (solution?.token) {
-        await page.evaluate((token) => {
-          const input = document.querySelector('[name="cf-turnstile-response"]') ||
-                        document.querySelector('input[type="hidden"]');
-          if (input) input.value = token;
-          const form = document.querySelector('form');
-          if (form) form.submit();
-        }, solution.token);
-        await page.waitForNavigation({ waitUntil: 'load', timeout: 30000 }).catch(() => {});
-        console.log(`[browser] Post-solve title: ${await page.title()}`);
-      }
-
-      await new Promise(r => setTimeout(r, 8000));
-    } else {
-      await new Promise(r => setTimeout(r, 6000));
-    }
-
-    console.log(`[browser] Order: ${orderData ? '✅' : '❌'}`);
+    // Wait for GoPuff's JS to complete API calls
+    await new Promise(r => setTimeout(r, 6000));
+    console.log(`[bd] Order: ${orderData ? '✅' : '❌'}`);
   } catch(e) {
-    console.warn('[browser] Error:', e.message);
+    console.warn('[bd] Error:', e.message);
   } finally {
     await page.close();
+    await browser.disconnect(); // disconnect, not close — keeps BD session pool alive
   }
 
   if (!orderData) throw new Error('No order data captured');
@@ -176,5 +98,4 @@ app.use(express.static(__dirname));
 
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
-  getBrowser().catch(e => console.warn('[browser] Warmup failed:', e.message));
 });

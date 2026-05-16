@@ -118,25 +118,33 @@ bot.on('message', async (msg) => {
 
   if (!text || text.startsWith('/')) return;
 
-  if (!isGoPuffUrl(text)) {
+  // Parse URL and optional last 4 digits: "gopuff.com/... 4567"
+  const parts     = text.trim().split(/\s+/);
+  const gopuffRaw = parts[0];
+  const last4     = parts[1] && /^\d{4}$/.test(parts[1]) ? parts[1] : null;
+
+  if (!isGoPuffUrl(gopuffRaw)) {
     bot.sendMessage(chatId,
       `❌ That doesn't look like a GoPuff tracking link.\n\n` +
-      `Send me something like:\n\`gopuff.com/go/order-tracker?orderId=123&shareCode=ABC\``,
+      `Send the URL followed by the last 4 digits of the customer's phone:\n` +
+      `\`gopuff.com/order-progress/123?share=ABC 4567\``,
       { parse_mode: 'Markdown' }
     );
     return;
   }
 
+  const text_to_use = gopuffRaw;
+
   // Show typing indicator
   bot.sendChatAction(chatId, 'typing');
 
   // Check if we already made a link for this exact URL
-  const existing = [...store.entries()].find(([, v]) => v.gopuffUrl === text);
+  const existing = [...store.entries()].find(([, v]) => v.gopuffUrl === text_to_use);
   if (existing) {
     const [id] = existing;
     bot.sendMessage(chatId,
       `♻️ *Link already exists for this order:*\n\n` +
-      `🔗 \`${BASE_URL}/t/${id}\`\n\n` +
+      `🔗 \`${BASE_URL}/${id}\`\n\n` +
       `_Share this with your client for live tracking._`,
       { parse_mode: 'Markdown' }
     );
@@ -148,14 +156,15 @@ bot.on('message', async (msg) => {
   do { shortId = generateShortId(); } while (store.has(shortId));
 
   // Parse the URL to confirm we got orderId + shareCode
-  const { orderId, shareCode } = parseGoPuffUrl(text);
+  const { orderId, shareCode } = parseGoPuffUrl(text_to_use);
   const orderLabel = orderId ? `Order #${orderId}` : 'Order';
 
   // Store it
   store.set(shortId, {
-    gopuffUrl:  text,
+    gopuffUrl:  text_to_use,
     orderId,
     shareCode,
+    last4,
     chatId,
     createdAt:  Date.now(),
   });

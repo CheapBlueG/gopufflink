@@ -1,6 +1,7 @@
 const express = require('express');
 const cors    = require('cors');
 const path    = require('path');
+const fs      = require('fs');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -10,9 +11,29 @@ app.use(cors());
 app.use(express.json());
 
 // ── DATA STORE ────────────────────────────────────────────────────────────────
-// Order data pushed from local scraper, served to clients
-const orderCache = new Map(); // orderId:shareCode → { order, products, ts }
-const pending    = new Map(); // orderId:shareCode → true (waiting to be scraped)
+const STORE_DIR   = process.env.RENDER ? '/data' : __dirname;
+const CACHE_FILE  = path.join(STORE_DIR, 'order-cache.json');
+
+// Load persisted order cache from disk
+function loadCache() {
+  try {
+    if (fs.existsSync(CACHE_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+      console.log(`[cache] Loaded ${Object.keys(raw).length} cached orders`);
+      return new Map(Object.entries(raw));
+    }
+  } catch(e) {}
+  return new Map();
+}
+
+function saveCache() {
+  try {
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(Object.fromEntries(orderCache)), 'utf8');
+  } catch(e) { console.error('[cache] Save failed:', e.message); }
+}
+
+const orderCache = loadCache();
+const pending    = new Map();
 
 // ── SHARED STORE (bot links) ──────────────────────────────────────────────────
 const { store } = require('./bot');
@@ -22,11 +43,24 @@ const { store } = require('./bot');
 // Local scraper polls this for new orders to scrape
 app.get('/api/pending', (req, res) => {
   if (req.query.secret !== SECRET) return res.status(401).json({ error: 'unauthorized' });
+
   const orders = [...pending.entries()].map(([key]) => {
     const [orderId, shareCode] = key.split(':');
     return { orderId, shareCode };
   });
-  res.json({ orders });
+
+  // Also return in-transit orders for live location updates
+  const active = [...orderCache.entries()]
+    .filter(([, v]) => {
+      const phase = v.order?.data?.orderProgress?.phase;
+      return phase === 'InTransit' || phase === 'OutForDelivery' || phase === 'Packing';
+    })
+    .map(([key]) => {
+      const [orderId, shareCode] = key.split(':');
+      return { orderId, shareCode };
+    });
+
+  res.json({ orders, active });
 });
 
 // Reverse geocode lat/lng → address string
@@ -70,6 +104,7 @@ app.post('/api/push', async (req, res) => {
 
   orderCache.set(key, updated);
   pending.delete(key);
+  saveCache();
   console.log(`[push] ✅ ${orderId} — order:${!!updated.order} products:${!!updated.products}`);
   res.json({ ok: true });
 });

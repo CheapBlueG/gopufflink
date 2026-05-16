@@ -539,57 +539,63 @@ function startDemoMovement(o) {
   },2000);
 }
 
+// Safe element setter — won't crash if element was removed
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
 // ─── RENDER ───────────────────────────────────────────────────────────────────
 async function renderOrder(order, isDemo) {
   const sm=STATUS_META[order.statusIndex];
-  document.getElementById('statusIcon').textContent=sm.icon;
-  document.getElementById('statusTitle').textContent=sm.title;
-  document.getElementById('statusSub').textContent=sm.sub;
-  document.getElementById('etaTime').textContent=order.eta;
-  document.getElementById('etaLabel').textContent=order.statusIndex===3?'':'ETA';
+  setText('statusIcon', sm.icon);
+  setText('statusTitle', sm.title);
+  setText('statusSub', sm.sub);
+  setText('etaTime', order.eta);
+  setText('etaLabel', order.statusIndex===3?'':'ETA');
   const pb=document.getElementById('precedingBanner');
-  if(order.preceding!=null&&order.preceding>0){document.getElementById('precedingCount').textContent=order.preceding;pb.classList.remove('hidden');}
-  else pb.classList.add('hidden');
+  if(pb) {
+    if(order.preceding!=null&&order.preceding>0){setText('precedingCount', order.preceding);pb.classList.remove('hidden');}
+    else pb.classList.add('hidden');
+  }
   [0,1,2,3].forEach(i=>{
-    const el=document.getElementById('step'+i);el.className='step';
+    const el=document.getElementById('step'+i);
+    if(!el) return;
+    el.className='step';
     if(i<order.statusIndex){el.classList.add('done');el.querySelector('.step-dot').textContent='✓';}
     else if(i===order.statusIndex)el.classList.add('active');
   });
-  document.getElementById('mapAvatar').textContent=order.driver.emoji;
-  document.getElementById('mapDriverName').textContent=order.driver.name;
-  document.getElementById('mapVehicle').textContent=order.driver.vehicle;
-  document.getElementById('driverAvatar').textContent=order.driver.emoji;
-  document.getElementById('driverName').textContent=order.driver.name;
-  document.getElementById('driverVehicle').textContent=order.driver.vehicle;
-  document.getElementById('phoneLast4').textContent = _last4 ? `···· ${_last4}` : '—';
-  const fullAddr = [_deliveryAddress, _apt].filter(Boolean).join(', ');
-  document.getElementById('deliveryAddr').textContent = fullAddr || '—';
-  document.getElementById('etaWindow').textContent=order.etaWindow;
-  document.getElementById('zoneId').textContent='Zone '+order.zoneId;
-  document.getElementById('packerName').textContent=order.packerName;
-  document.getElementById('nextUp').textContent=order.preceding===0?"You're next! 🎉":`${order.preceding} stop(s) before you`;
-  document.getElementById('orderStatus').textContent=sm.title;
+  setText('mapAvatar', order.driver.emoji);
+  setText('mapDriverName', order.driver.name);
+  setText('mapVehicle', order.driver.vehicle);
+  setText('driverAvatar', order.driver.emoji);
+  setText('driverName', order.driver.name);
+  setText('driverVehicle', order.driver.vehicle);
+  setText('etaWindow', order.etaWindow);
+  setText('zoneId', 'Zone '+order.zoneId);
+  setText('packerName', order.packerName);
+  setText('nextUp', order.preceding===0?"You're next! 🎉":`${order.preceding} stop(s) before you`);
+  setText('orderStatus', sm.title);
   document.getElementById('orderItems').innerHTML=renderItems(order.products,order.packedMap);
   const pct=order.totalItems>0?Math.round((order.packedItems/order.totalItems)*100):0;
   document.getElementById('orderTotals').innerHTML=`<div class="total-rows"><div class="packing-label" style="margin-top:12px">${order.packedItems} of ${order.totalItems} items packed (${pct}%)</div><div class="packing-bar-bg"><div class="packing-bar-fill" style="width:${pct}%"></div></div><div class="total-row grand" style="margin-top:14px"><span>Order Total</span><span>$${order.total.toFixed(2)}</span></div></div>`;
   document.getElementById('emptyState').classList.add('hidden');
   document.getElementById('loadingState').classList.add('hidden');
   document.getElementById('trackerUI').classList.remove('hidden');
-  document.getElementById('liveBadge').style.display=isDemo?'none':'';
-  document.getElementById('demoBadge').style.display=isDemo?'':'none';
+  const liveBadge = document.getElementById('liveBadge');
+  const demoBadge = document.getElementById('demoBadge');
+  if(liveBadge) liveBadge.style.display=isDemo?'none':'';
+  if(demoBadge) demoBadge.style.display=isDemo?'':'none';
   setTimeout(()=>{
     initMap(order.driverLat,order.driverLng,order.destLat,order.destLng,order.driver.emoji);
     if(isDemo)startDemoMovement(order);else if(order.driverLat!=null)moveDriver(order.driverLat,order.driverLng);
   },120);
-  // Fetch real ETA range + product images in parallel
   const ids = order.products.map(p=>p.productId);
   const [estEta] = await Promise.all([
     isDemo ? Promise.resolve(null) : fetchEstimate(order.zoneId, order.destLat, order.destLng),
     fetchProducts(ids),
   ]);
-  if (estEta && order.statusIndex < 3) {
-    document.getElementById('etaTime').textContent = estEta;
-  }
+  if (estEta && order.statusIndex < 3) setText('etaTime', estEta);
   document.getElementById('orderItems').innerHTML=renderItems(order.products,order.packedMap);
 }
 

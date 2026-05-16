@@ -205,7 +205,7 @@
         <div class="card">
           <div class="card-title">Order Info</div>
           <div class="info-rows">
-            <div class="info-row"><span class="info-key">Order ID</span><span class="info-val blue" id="orderId">—</span></div>
+            <div class="info-row"><span class="info-key">Phone</span><span class="info-val blue" id="phoneLast4">—</span></div>
             <div class="info-row"><span class="info-key">ETA window</span><span class="info-val" id="etaWindow">—</span></div>
             <div class="info-row"><span class="info-key">Zone</span><span class="info-val" id="zoneId">—</span></div>
             <div class="info-row"><span class="info-key">Packed by</span><span class="info-val" id="packerName">—</span></div>
@@ -301,32 +301,38 @@ async function getBearer() {
   return _bearer;
 }
 
+// Store context for product fetching
+let _currentOrderId = null, _currentShareCode = null;
+
 async function gopuffFetch(operationName, variables, hash) {
   if (operationName === 'GetSharedOrderStatus') {
     const { orderId, shareCode } = variables;
+    _currentOrderId = orderId;
+    _currentShareCode = shareCode;
 
-    // Poll until data is ready (local scraper may take 15-30s)
     for (let i = 0; i < 12; i++) {
       const r = await fetch(`${API}/api/track?orderId=${encodeURIComponent(orderId)}&shareCode=${encodeURIComponent(shareCode)}`);
       if (r.status === 202) {
-        // Still loading — update status and wait
         document.getElementById('statusSub').textContent = `Fetching order data... (${(i+1)*5}s)`;
         await new Promise(r => setTimeout(r, 5000));
         continue;
       }
       if (!r.ok) throw new Error(`GoPuff ${r.status}`);
       const data = await r.json();
+      // Cache product data if included
+      if (data.products?.data?.view?.products) parseProductResponse(data.products);
       return data.order;
     }
     throw new Error('Timed out waiting for order data');
   }
   if (operationName === 'Products') {
-    const { orderId, shareCode } = variables;
-    const key = `${orderId}:${shareCode}`;
-    const r = await fetch(`${API}/api/track?orderId=${encodeURIComponent(orderId)}&shareCode=${encodeURIComponent(shareCode)}`);
-    if (r.ok) {
-      const data = await r.json();
-      return data.products || { data: { view: { products: [] } } };
+    // Products already cached from order fetch
+    if (_currentOrderId && _currentShareCode) {
+      const r = await fetch(`${API}/api/track?orderId=${encodeURIComponent(_currentOrderId)}&shareCode=${encodeURIComponent(_currentShareCode)}`);
+      if (r.ok) {
+        const data = await r.json();
+        if (data.products) return data.products;
+      }
     }
     return { data: { view: { products: [] } } };
   }
@@ -556,7 +562,7 @@ async function renderOrder(order, isDemo) {
   document.getElementById('driverAvatar').textContent=order.driver.emoji;
   document.getElementById('driverName').textContent=order.driver.name;
   document.getElementById('driverVehicle').textContent=order.driver.vehicle;
-  document.getElementById('orderId').textContent=order.orderId;
+  document.getElementById('phoneLast4').textContent = _last4 ? `···· ${_last4}` : '—';
   document.getElementById('etaWindow').textContent=order.etaWindow;
   document.getElementById('zoneId').textContent='Zone '+order.zoneId;
   document.getElementById('packerName').textContent=order.packerName;
@@ -751,17 +757,20 @@ async function handleTrack() {
 
 document.getElementById('trackInput').addEventListener('keydown',e=>{if(e.key==='Enter')handleTrack();});
 
-// Auto-load from clean URL: groceriesarecool.app/ccacbc7a
+let _last4 = null;
+
 (async () => {
   const shortMatch = window.location.pathname.match(/^\/([a-f0-9]{8})$/i);
   if (shortMatch) {
+    document.querySelector('.input-section').style.display = 'none';
     const shortId = shortMatch[1];
     try {
       document.getElementById('emptyState').classList.add('hidden');
       document.getElementById('loadingState').classList.remove('hidden');
       const r = await fetch(`${API}/api/resolve/${shortId}`);
       if (!r.ok) throw new Error('Link not found');
-      const { orderId, shareCode } = await r.json();
+      const { orderId, shareCode, last4 } = await r.json();
+      _last4 = last4;
       document.getElementById('trackInput').value =
         `https://www.gopuff.com/order-progress/${orderId}?share=${shareCode}`;
       await handleTrack();

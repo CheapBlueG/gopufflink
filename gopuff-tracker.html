@@ -144,15 +144,14 @@
       <input class="track-input" id="trackInput" type="text" placeholder="Paste your GoPuff tracking link...">
       <button class="track-btn" onclick="handleTrack()">Track Order</button>
     </div>
-    <p class="input-hint">Paste the full GoPuff tracking URL · <a href="#" onclick="loadDemo();return false">Load demo →</a></p>
+    <p class="input-hint">Paste the full GoPuff tracking URL</p>
   </div>
 
   <div id="emptyState">
     <div class="empty-state">
       <div class="empty-icon">📦</div>
       <div class="empty-title">Paste a tracking link to get started</div>
-      <p class="empty-sub">Preview the full experience with a live demo order.</p>
-      <button class="demo-btn" onclick="loadDemo()">View Demo Order</button>
+      <p class="empty-sub">Enter your GoPuff tracking URL above.</p>
     </div>
   </div>
   <div id="loadingState" class="hidden"><div class="loading"><div class="spinner"></div>Fetching order data...</div></div>
@@ -205,8 +204,6 @@
         <div class="card">
           <div class="card-title">Order Info</div>
           <div class="info-rows">
-            <div class="info-row"><span class="info-key">Phone</span><span class="info-val blue" id="phoneLast4">—</span></div>
-            <div class="info-row"><span class="info-key">Address</span><span class="info-val" id="deliveryAddr" style="text-align:right;max-width:180px;font-size:12px;line-height:1.4">—</span></div>
             <div class="info-row"><span class="info-key">ETA window</span><span class="info-val" id="etaWindow">—</span></div>
             <div class="info-row"><span class="info-key">Zone</span><span class="info-val" id="zoneId">—</span></div>
             <div class="info-row"><span class="info-key">Packed by</span><span class="info-val" id="packerName">—</span></div>
@@ -786,7 +783,8 @@ let _last4 = null, _deliveryAddress = null, _apt = null;
       document.getElementById('emptyState').querySelector('.empty-sub').textContent = 'This tracking link may have expired.';
     }
   } else {
-    loadDemo();
+    // Just show empty state on root
+    document.getElementById('emptyState').classList.remove('hidden');
   }
 })();
 </script>

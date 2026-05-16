@@ -1,97 +1,77 @@
-const express   = require('express');
-const cors      = require('cors');
-const path      = require('path');
-const puppeteer = require('puppeteer-core');
+const express = require('express');
+const cors    = require('cors');
+const path    = require('path');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
+const SECRET = process.env.SCRAPER_SECRET || 'changeme123';
+
 app.use(cors());
+app.use(express.json());
 
-const BD_WS = process.env.BRIGHTDATA_WS || '';
+// ── DATA STORE ────────────────────────────────────────────────────────────────
+// Order data pushed from local scraper, served to clients
+const orderCache = new Map(); // orderId:shareCode → { order, products, ts }
+const pending    = new Map(); // orderId:shareCode → true (waiting to be scraped)
 
-if (BD_WS) console.log('✅ Bright Data Scraping Browser configured');
-else        console.warn('⚠️  No BRIGHTDATA_WS set');
-
-// ── FETCH ORDER BY INTERCEPTING GOPUFF'S OWN API CALLS ────────────────────────
-// Connect to Bright Data's remote browser (residential IP + Cloudflare bypass)
-// Navigate to the real GoPuff tracking page — their JS makes the API calls
-// We intercept the responses. No local browser, no proxy needed on our server.
-async function fetchOrderByPage(orderId, shareCode) {
-  if (!BD_WS) throw new Error('BRIGHTDATA_WS env var not set');
-
-  console.log('[bd] Connecting to Scraping Browser...');
-  const browser = await puppeteer.connect({ browserWSEndpoint: BD_WS });
-  console.log('[bd] ✅ Connected');
-
-  const page = await browser.newPage();
-  let orderData   = null;
-  let productData = null;
-
-  // Intercept GoPuff's own GraphQL responses
-  page.on('response', async (response) => {
-    const url = response.url();
-    if (!url.includes('/graphql')) return;
-    try {
-      const json = await response.json().catch(() => null);
-      if (!json) return;
-      if (json?.data?.orderProgress)  { orderData   = json; console.log('[intercept] ✅ Order'); }
-      if (json?.data?.view?.products) { productData = json; console.log('[intercept] ✅ Products'); }
-    } catch(e) {}
-  });
-
-  const trackingUrl = `https://www.gopuff.com/order-progress/${orderId}?share=${shareCode}`;
-  console.log(`[bd] Loading ${trackingUrl}`);
-
-  try {
-    try {
-      await page.goto(trackingUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
-    } catch(e) {
-      console.log(`[bd] Page load timeout — checking for intercepted data anyway...`);
-    }
-
-    const title = await page.title().catch(() => 'unknown');
-    console.log(`[bd] Title: ${title}`);
-
-    // Wait for GoPuff's JS to make API calls
-    await new Promise(r => setTimeout(r, 10000));
-    console.log(`[bd] Order: ${orderData ? '✅' : '❌'}`);
-  } catch(e) {
-    console.warn('[bd] Error:', e.message);
-  } finally {
-    await page.close();
-    await browser.disconnect(); // disconnect, not close — keeps BD session pool alive
-  }
-
-  if (!orderData) throw new Error('No order data captured');
-  return { order: orderData, products: productData };
-}
-
-// ── SHARED STORE ──────────────────────────────────────────────────────────────
+// ── SHARED STORE (bot links) ──────────────────────────────────────────────────
 const { store } = require('./bot');
 
 // ── ROUTES ────────────────────────────────────────────────────────────────────
-app.get('/api/track', async (req, res) => {
-  const { orderId, shareCode } = req.query;
-  if (!orderId || !shareCode) return res.status(400).json({ error: 'orderId and shareCode required' });
-  try {
-    const { order, products } = await fetchOrderByPage(orderId, shareCode);
-    res.json({ order, products });
-  } catch(e) {
-    console.error('[/api/track]', e.message);
-    res.status(502).json({ error: e.message });
-  }
+
+// Local scraper polls this for new orders to scrape
+app.get('/api/pending', (req, res) => {
+  if (req.query.secret !== SECRET) return res.status(401).json({ error: 'unauthorized' });
+  const orders = [...pending.entries()].map(([key]) => {
+    const [orderId, shareCode] = key.split(':');
+    return { orderId, shareCode };
+  });
+  res.json({ orders });
 });
 
+// Local scraper pushes scraped data here
+app.post('/api/push', (req, res) => {
+  if (req.headers['x-secret'] !== SECRET) return res.status(401).json({ error: 'unauthorized' });
+  const { orderId, shareCode, order, products } = req.body;
+  const key = `${orderId}:${shareCode}`;
+  orderCache.set(key, { order, products, ts: Date.now() });
+  pending.delete(key);
+  console.log(`[push] ✅ Order ${orderId} data received from local scraper`);
+  res.json({ ok: true });
+});
+
+// Client requests order data
+app.get('/api/track', (req, res) => {
+  const { orderId, shareCode } = req.query;
+  if (!orderId || !shareCode) return res.status(400).json({ error: 'orderId and shareCode required' });
+
+  const key    = `${orderId}:${shareCode}`;
+  const cached = orderCache.get(key);
+
+  if (cached) {
+    console.log(`[track] ✅ Serving cached data for ${orderId}`);
+    return res.json(cached);
+  }
+
+  // Queue for scraping
+  pending.set(key, true);
+  console.log(`[track] ⏳ Order ${orderId} queued for scraping`);
+
+  // Return loading state so client can poll
+  res.status(202).json({ status: 'loading', message: 'Order is being fetched — refresh in 15 seconds' });
+});
+
+// Resolve short link
 app.get('/api/resolve/:shortId', (req, res) => {
   const entry = store.get(req.params.shortId);
   if (!entry) return res.status(404).json({ error: 'Link not found' });
   res.json({ url: entry.gopuffUrl, orderId: entry.orderId, shareCode: entry.shareCode });
 });
 
-app.get('/t/:shortId', (req, res) => {
-  res.redirect(301, `/${req.params.shortId}`);
-});
+// Legacy redirect
+app.get('/t/:shortId', (req, res) => res.redirect(301, `/${req.params.shortId}`));
 
+// Short link → tracker page
 app.get('/:shortId([a-f0-9]{8})', (req, res) => {
   if (!store.get(req.params.shortId)) {
     return res.status(404).send(`<html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#07080d;color:#fff"><h2>❌ Link not found</h2></body></html>`);
@@ -101,6 +81,4 @@ app.get('/:shortId([a-f0-9]{8})', (req, res) => {
 
 app.use(express.static(__dirname));
 
-app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));

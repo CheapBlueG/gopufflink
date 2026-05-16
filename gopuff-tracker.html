@@ -301,20 +301,36 @@ async function getBearer() {
   return _bearer;
 }
 
-// CF Worker acts as CORS proxy only — real request comes from user's browser
-// Cloudflare sees the user's real residential IP and Chrome fingerprint
-const CF_WORKER = 'https://orange-leaf-b823.pertyler74.workers.dev';
-
 async function gopuffFetch(operationName, variables, hash) {
-  const v   = encodeURIComponent(JSON.stringify(variables));
-  const ext = encodeURIComponent(JSON.stringify({ persistedQuery: { sha256Hash: hash, version: 1 } }));
-  const gopuffUrl = `https://www.gopuff.com/graphql?operationName=${operationName}&variables=${v}&extensions=${ext}`;
+  if (operationName === 'GetSharedOrderStatus') {
+    const { orderId, shareCode } = variables;
 
-  // Request goes: Browser → CF Worker → GoPuff
-  // GoPuff sees the user's real browser headers/IP — passes Cloudflare
-  const r = await fetch(`${CF_WORKER}?url=${encodeURIComponent(gopuffUrl)}`);
-  if (!r.ok) throw new Error(`GoPuff ${r.status}`);
-  return r.json();
+    // Poll until data is ready (local scraper may take 15-30s)
+    for (let i = 0; i < 12; i++) {
+      const r = await fetch(`${API}/api/track?orderId=${encodeURIComponent(orderId)}&shareCode=${encodeURIComponent(shareCode)}`);
+      if (r.status === 202) {
+        // Still loading — update status and wait
+        document.getElementById('statusSub').textContent = `Fetching order data... (${(i+1)*5}s)`;
+        await new Promise(r => setTimeout(r, 5000));
+        continue;
+      }
+      if (!r.ok) throw new Error(`GoPuff ${r.status}`);
+      const data = await r.json();
+      return data.order;
+    }
+    throw new Error('Timed out waiting for order data');
+  }
+  if (operationName === 'Products') {
+    const { orderId, shareCode } = variables;
+    const key = `${orderId}:${shareCode}`;
+    const r = await fetch(`${API}/api/track?orderId=${encodeURIComponent(orderId)}&shareCode=${encodeURIComponent(shareCode)}`);
+    if (r.ok) {
+      const data = await r.json();
+      return data.products || { data: { view: { products: [] } } };
+    }
+    return { data: { view: { products: [] } } };
+  }
+  throw new Error(`Unknown operation: ${operationName}`);
 }
 
 // Fetch order status directly from browser

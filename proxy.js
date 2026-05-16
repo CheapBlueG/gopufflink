@@ -29,14 +29,48 @@ app.get('/api/pending', (req, res) => {
   res.json({ orders });
 });
 
+// Reverse geocode lat/lng → address string
+async function reverseGeocode(lat, lng) {
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+      { headers: { 'User-Agent': 'GoPuffTracker/1.0' } }
+    );
+    const d = await r.json();
+    const a = d.address || {};
+    const line1 = [a.house_number, a.road].filter(Boolean).join(' ');
+    const line2 = [a.city || a.town || a.village, a.state, a.postcode].filter(Boolean).join(', ');
+    return [line1, line2].filter(Boolean).join(', ');
+  } catch(e) { return null; }
+}
+
 // Local scraper pushes scraped data here
-app.post('/api/push', (req, res) => {
+app.post('/api/push', async (req, res) => {
   if (req.headers['x-secret'] !== SECRET) return res.status(401).json({ error: 'unauthorized' });
   const { orderId, shareCode, order, products } = req.body;
   const key = `${orderId}:${shareCode}`;
-  orderCache.set(key, { order, products, ts: Date.now() });
+
+  // Merge with existing cache (order and products may arrive separately)
+  const existing = orderCache.get(key) || {};
+  const updated  = {
+    order:    order    || existing.order,
+    products: products || existing.products,
+    address:  existing.address,
+    ts:       Date.now(),
+  };
+
+  // Reverse geocode on first order push
+  if (order && !existing.address) {
+    const dest = order?.data?.orderProgress?.destination;
+    if (dest?.latitude && dest?.longitude) {
+      updated.address = await reverseGeocode(dest.latitude, dest.longitude);
+      console.log(`[push] Address: ${updated.address}`);
+    }
+  }
+
+  orderCache.set(key, updated);
   pending.delete(key);
-  console.log(`[push] ✅ Order ${orderId} data received from local scraper`);
+  console.log(`[push] ✅ ${orderId} — order:${!!updated.order} products:${!!updated.products}`);
   res.json({ ok: true });
 });
 
@@ -65,7 +99,13 @@ app.get('/api/track', (req, res) => {
 app.get('/api/resolve/:shortId', (req, res) => {
   const entry = store.get(req.params.shortId);
   if (!entry) return res.status(404).json({ error: 'Link not found' });
-  res.json({ url: entry.gopuffUrl, orderId: entry.orderId, shareCode: entry.shareCode, last4: entry.last4 || null });
+  res.json({
+    url: entry.gopuffUrl,
+    orderId: entry.orderId,
+    shareCode: entry.shareCode,
+    last4: entry.last4 || null,
+    apt: entry.apt || null,
+  });
 });
 
 // Legacy redirect

@@ -122,6 +122,7 @@ bot.on('message', async (msg) => {
   const parts     = text.trim().split(/\s+/);
   const gopuffRaw = parts[0];
   const last4     = parts[1] && /^\d{4}$/.test(parts[1]) ? parts[1] : null;
+  const apt       = parts[2] || null; // e.g. "Apt 4B" or "Unit 5"
 
   if (!isGoPuffUrl(gopuffRaw)) {
     bot.sendMessage(chatId,
@@ -165,6 +166,7 @@ bot.on('message', async (msg) => {
     orderId,
     shareCode,
     last4,
+    apt,
     chatId,
     createdAt:  Date.now(),
   });

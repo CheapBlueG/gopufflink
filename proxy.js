@@ -65,7 +65,7 @@ app.get('/api/track', (req, res) => {
 app.get('/api/resolve/:shortId', (req, res) => {
   const entry = store.get(req.params.shortId);
   if (!entry) return res.status(404).json({ error: 'Link not found' });
-  res.json({ url: entry.gopuffUrl, orderId: entry.orderId, shareCode: entry.shareCode });
+  res.json({ url: entry.gopuffUrl, orderId: entry.orderId, shareCode: entry.shareCode, last4: entry.last4 || null });
 });
 
 // Legacy redirect
